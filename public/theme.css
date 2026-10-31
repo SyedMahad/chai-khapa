@@ -13,9 +13,9 @@
   color-scheme: dark;
 
   /* Foundations */
-  --color-bg: #313E4B;
-  --color-surface: #485D6E;
-  --color-surface-raised: #546B7C;
+  --color-bg: #273440;
+  --color-surface: #394E60;
+  --color-surface-raised: #465B6C;
 
   /* Content */
   --color-text: #F4F5F3;
@@ -23,9 +23,9 @@
   --color-muted-quiet: #C4CFD9;
 
   /* Lines and interactive states */
-  --color-border: #8193A1;
-  --color-border-hover: #9EADB9;
-  --color-border-soft: #718391;
+  --color-border: #71889A;
+  --color-border-hover: #94AABD;
+  --color-border-soft: #61798D;
   --color-accent: #DC9D75;
   --color-accent-hover: #F0B58F;
   --color-on-accent: #25313A;

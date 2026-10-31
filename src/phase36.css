@@ -1,0 +1,61 @@
+/* Chai Khapa Phase 3.6: settlement UX and final Smoky Slate composition.
+   Color HEX values are intentionally ONLY in /public/theme.css. */
+.quick-action { display:grid; grid-template-columns:20px minmax(0,1fr) auto; gap:12px; align-items:center; min-height:47px; }
+.quick-label {min-width:0; text-align:left;}
+.quick-action>svg:last-child{margin:0;color:var(--color-muted);}
+.quick-tail{display:inline-flex;align-items:center;justify-content:flex-end;gap:12px;}
+.quick-tail .nav-badge{margin:0;}
+.quick-tail svg{color:var(--color-muted);}
+.profile-grid{align-items:start;}
+.profile-side{height:auto;min-height:0;align-self:start;}
+.profile-side .setup-progress{padding:9px 0 18px;margin-bottom:8px;}
+.profile-side .setup-step{min-height:42px;}
+.profile-side .divider{margin:17px 0;}
+.profile-side .button{margin:12px 10px 0 0;}
+.profile-side .setup-footer{margin-top:11px;}
+.profile-side .progress-ring.large-ring{height:72px;width:72px;}
+.profile-side .progress-ring.large-ring:before{inset:7px;}
+.profile-side .progress-ring.large-ring strong{font-size:15px;}
+.panel{border-color:var(--color-border-soft);}
+.panel:hover{border-color:var(--color-border-hover);}
+.sidebar,.overview-group-card,.overview-create-card,.stat-card,.overview-help,.due-row,.settlement-summary{background:var(--color-surface);}
+/* Solid shades instead of opacity layering; theme retains the copper accent. */
+.quick-action:hover{color:var(--color-text);}
+.settlement-summary{display:grid;grid-template-columns:1fr 1.25fr;gap:26px;align-items:center;border:1px solid var(--color-border-soft);border-radius:14px;padding:24px 26px;margin-bottom:18px;}
+.settlement-summary strong{font-size:clamp(25px,3vw,38px);color:var(--color-accent-hover);display:block;margin:5px 0 9px;letter-spacing:-.04em;}
+.settlement-summary p:not(.micro){font-size:12px;color:var(--color-muted);line-height:1.6;margin:0;}
+.settlement-close,.settlement-ledger,.settlement-preview{margin-top:16px;}
+.settlement-close-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:18px;}
+.settlement-close-actions button{white-space:normal;min-height:44px;}
+.settlement-period{margin:14px 0 18px;border:1px solid var(--color-border-soft);border-radius:12px;overflow:hidden;}
+.settlement-period-head{display:flex;justify-content:space-between;align-items:center;gap:14px;padding:14px 18px;background:var(--color-surface-raised);}
+.settlement-period-head h3{font:400 21px Georgia,serif;margin:0;}
+.settlement-period-head span{font-size:12px;color:var(--color-muted);}
+.settlement-transfer{display:flex;justify-content:space-between;gap:18px;padding:20px 18px;border-top:1px solid var(--color-border-soft);align-items:center;}
+.settlement-transfer-info{display:flex;flex-direction:column;gap:5px;min-width:0;}
+.settlement-transfer-info .micro{margin:0;}
+.settlement-transfer-info h4{font:400 23px Georgia,serif;margin:0;}
+.settlement-transfer-info>strong{color:var(--color-text);font-size:20px;letter-spacing:-.03em;}
+.settlement-status{font-size:11px;font-weight:750;margin-top:4px;}
+.status-unpaid{color:var(--color-warning);}
+.status-awaiting_confirmation{color:var(--color-accent-hover);}
+.status-confirmed{color:var(--color-success);}
+.settlement-action{width:min(310px,100%);display:grid;gap:10px;}
+.settlement-action .field-label{margin:0;}
+.settlement-action select{min-height:43px;font-size:12px;}
+.settlement-action .button{min-width:130px;white-space:normal;}
+.settlement-buttons{display:flex;flex-wrap:wrap;gap:9px;}
+.settlement-preview>.muted-small{margin-bottom:16px;}
+.settlement-preview .due-list{margin-top:18px;}
+@media(max-width:740px){
+ .profile-grid{gap:13px;}
+ .settlement-summary{grid-template-columns:1fr;gap:10px;padding:17px;}
+ .settlement-close,.settlement-ledger,.settlement-preview{padding:17px;}
+ .settlement-period-head{padding:12px;}
+ .settlement-transfer{flex-direction:column;align-items:stretch;padding:14px 12px;gap:14px;}
+ .settlement-action{width:100%;}
+ .settlement-action .button{width:100%;}
+ .settlement-buttons{display:grid;grid-template-columns:1fr;}
+ .quick-action{min-height:50px;}
+ .profile-side .progress-ring.large-ring{width:64px;height:64px;}
+}

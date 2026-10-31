@@ -16,6 +16,10 @@ type Expense = { id: string; group_id: string; amount_paisa: number; paid_by_use
 type Balance = { user_id: string; first_name: string | null; last_name: string | null; total_paid_paisa: number; total_share_paisa: number; net_paisa: number }
 type GroupOverview = { id: string; name: string; net: number; memberCount: number; sessionCount: number; archived: boolean; balances: Balance[] }
 type Notification = { id: string; group_id: string | null; type: string; title: string; body: string; target_type: string | null; target_id: string | null; read_at: string | null; created_at: string }
+type SettlementPeriod = { id: string; group_id: string; period_month: string; start_at: string; end_at: string; closed_at: string }
+type SettlementTransfer = { id: string; period_id: string; group_id: string; debtor_user_id: string; creditor_user_id: string; amount_paisa: number; status: 'unpaid' | 'awaiting_confirmation' | 'confirmed'; confirmed_at: string | null }
+type PaymentClaim = { id: string; transfer_id: string; actual_paid_paisa: number; rounding_adjustment_paisa: number; claimed_by_user_id: string; status: 'pending' | 'confirmed' | 'rejected'; created_at: string }
+
 
 type IconName = 'grid' | 'users' | 'plus' | 'clock' | 'bell' | 'settings' | 'chevron' | 'arrow' | 'link' | 'check' | 'logout' | 'copy' | 'receipt' | 'cup' | 'menu' | 'close' | 'refresh'
 
@@ -71,6 +75,11 @@ export default function App() {
   const [expenses, setExpenses] = useState<Expense[]>([])
   const [balances, setBalances] = useState<Balance[]>([])
   const [notifications, setNotifications] = useState<Notification[]>([])
+  const [settlementPeriods, setSettlementPeriods] = useState<SettlementPeriod[]>([])
+  const [settlementTransfers, setSettlementTransfers] = useState<SettlementTransfer[]>([])
+  const [paymentClaims, setPaymentClaims] = useState<PaymentClaim[]>([])
+  const [settlementLoading, setSettlementLoading] = useState(false)
+  const settlementRequestRef = useRef(0)
   const [unreadCount, setUnreadCount] = useState(0)
   const [notificationLimit, setNotificationLimit] = useState(30)
   const [hasMoreNotifications, setHasMoreNotifications] = useState(false)
@@ -151,8 +160,8 @@ export default function App() {
   }, [user])
 
   useEffect(() => {
-    workspaceRequestRef.current++; overviewRequestRef.current++; groupRequestRef.current++; notificationRequestRef.current++
-    setProfile(null); setGroups([]); setGroupId(null); setOverview([]); setMembers([]); setExpenses([]); setBalances([]); setNotifications([])
+    workspaceRequestRef.current++; overviewRequestRef.current++; groupRequestRef.current++; notificationRequestRef.current++; settlementRequestRef.current++
+    setProfile(null); setGroups([]); setGroupId(null); setOverview([]); setMembers([]); setExpenses([]); setBalances([]); setNotifications([]); setSettlementPeriods([]); setSettlementTransfers([]); setPaymentClaims([])
     if (user) void refreshWorkspace()
   }, [user?.id]) // On sign-in/out, discard another user's data; not on ordinary rerenders.
 
@@ -229,6 +238,35 @@ export default function App() {
   useEffect(() => { if (user && (route.view === 'groups' || route.view === 'group')) void refreshWorkspace() }, [route.view, user?.id])
   useEffect(() => { if (user && route.view === 'dues') void refreshOverview() }, [route.view, user?.id])
 
+  const refreshSettlements = useCallback(async () => {
+    const req = ++settlementRequestRef.current
+    if (!supabase || !user || !groups.length) {
+      setSettlementPeriods([]); setSettlementTransfers([]); setPaymentClaims([]); setSettlementLoading(false); return
+    }
+    setSettlementLoading(true)
+    try {
+      const ids = groups.map(g => g.id)
+      const [p, t] = await Promise.all([
+        supabase.from('settlement_periods').select('id,group_id,period_month,start_at,end_at,closed_at').in('group_id', ids).order('period_month', { ascending: false }),
+        supabase.from('settlement_transfers').select('id,period_id,group_id,debtor_user_id,creditor_user_id,amount_paisa,status,confirmed_at').in('group_id', ids),
+      ])
+      if (p.error) throw p.error
+      if (t.error) throw t.error
+      const transferRows = (t.data ?? []) as SettlementTransfer[]
+      const relevantIds = transferRows.filter(row => row.debtor_user_id === user.id || row.creditor_user_id === user.id).map(row => row.id)
+      const claims = relevantIds.length ? await supabase.from('settlement_payment_claims')
+        .select('id,transfer_id,actual_paid_paisa,rounding_adjustment_paisa,claimed_by_user_id,status,created_at')
+        .in('transfer_id', relevantIds).order('created_at', { ascending: false }) : { data: [] as PaymentClaim[], error: null }
+      if (claims.error) throw claims.error
+      if (req !== settlementRequestRef.current) return
+      setSettlementPeriods((p.data ?? []) as SettlementPeriod[])
+      setSettlementTransfers(transferRows)
+      setPaymentClaims((claims.data ?? []) as PaymentClaim[])
+    } catch (reason) { if (req === settlementRequestRef.current) setError(messageOf(reason)) }
+    finally { if (req === settlementRequestRef.current) setSettlementLoading(false) }
+  }, [groups, user?.id])
+  useEffect(() => { if (user && route.view === 'dues') void refreshSettlements() }, [user?.id, route.view, refreshSettlements])
+
   // Refresh independently changing data on focus, reconnect and periodically while visible.
   // Every request has a request generation: old responses cannot overwrite the active group.
   useEffect(() => {
@@ -238,14 +276,14 @@ export default function App() {
       if (document.visibilityState === 'hidden' || !navigator.onLine || Date.now() - last < 12_000) return
       last = Date.now()
       setRefreshing(true)
-      void Promise.allSettled([refreshWorkspace(), refreshGroup(), refreshOverview(), refreshNotificationsRef.current()]).finally(() => setRefreshing(false))
+      void Promise.allSettled([refreshWorkspace(), refreshGroup(), refreshOverview(), refreshNotificationsRef.current(), refreshSettlements()]).finally(() => setRefreshing(false))
     }
     window.addEventListener('focus', revalidate)
     window.addEventListener('online', revalidate)
     document.addEventListener('visibilitychange', revalidate)
     const timer = window.setInterval(revalidate, 60_000)
     return () => { window.removeEventListener('focus', revalidate); window.removeEventListener('online', revalidate); document.removeEventListener('visibilitychange', revalidate); clearInterval(timer) }
-  }, [user?.id, refreshWorkspace, refreshGroup, refreshOverview])
+  }, [user?.id, refreshWorkspace, refreshGroup, refreshOverview, refreshSettlements])
   const refreshNotifications = useCallback(async () => {
     if (!supabase || !user) return
     const request = ++notificationRequestRef.current
@@ -283,11 +321,11 @@ export default function App() {
     const client = supabase
     // Notification events arrive even when app is idle. Refetch on any visible group mutation.
     const channel = client.channel(`ck-ledger-${user.id}-${groupId ?? 'none'}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'expenses', ...(groupId ? { filter: `group_id=eq.${groupId}` } : {}) }, () => { void refreshGroup(); void refreshOverview() })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'expenses', ...(groupId ? { filter: `group_id=eq.${groupId}` } : {}) }, () => { void refreshGroup(); void refreshOverview(); void refreshSettlements() })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'group_members' }, () => { void refreshWorkspace(); void refreshGroup(); void refreshOverview() })
       .subscribe()
     return () => { void client.removeChannel(channel) }
-  }, [user?.id, groupId, refreshGroup, refreshOverview, refreshWorkspace])
+  }, [user?.id, groupId, refreshGroup, refreshOverview, refreshWorkspace, refreshSettlements])
   useEffect(() => { if (!toast) return; const t = window.setTimeout(() => setToast(''), 4500); return () => window.clearTimeout(t) }, [toast])
   useEffect(() => { if (user && groupId) localStorage.setItem(`chai-khapa-group:${user.id}`, groupId) }, [user, groupId])
 
@@ -303,7 +341,7 @@ export default function App() {
     if (!supabase) return
     const { error: signOutError } = await supabase.auth.signOut()
     if (signOutError) { setError(signOutError.message); return }
-    setProfile(null); setGroups([]); setGroupId(null); setMembers([]); setExpenses([]); setBalances([]); setNotifications([])
+    setProfile(null); setGroups([]); setGroupId(null); setMembers([]); setExpenses([]); setBalances([]); setNotifications([]); setSettlementPeriods([]); setSettlementTransfers([]); setPaymentClaims([])
     navigate('landing')
   }
   async function markRead(id: string) {
@@ -317,6 +355,28 @@ export default function App() {
     const { error: readError } = await supabase.rpc('mark_all_notifications_read')
     if (readError) { setError(readError.message); return }
     await refreshNotifications()
+  }
+
+  async function closeMonth(group: string, month: string) {
+    if (!supabase) return
+    const { error: rpcError } = await supabase.rpc('close_settlement_month', { p_group_id: group, p_month: month })
+    if (rpcError) throw rpcError
+    await Promise.all([refreshSettlements(), refreshOverview(), refreshNotifications()])
+    setToast('Month closed. Settlement instructions have been created.')
+  }
+  async function claimTransfer(transferId: string, paidPaisa: number) {
+    if (!supabase) return
+    const { error: rpcError } = await supabase.rpc('mark_transfer_paid', { p_transfer_id: transferId, p_paid_paisa: paidPaisa })
+    if (rpcError) throw rpcError
+    await Promise.all([refreshSettlements(), refreshOverview(), refreshNotifications()])
+    setToast('Marked as paid. Awaiting the recipient’s confirmation.')
+  }
+  async function decideClaim(claimId: string, received: boolean) {
+    if (!supabase) return
+    const { error: rpcError } = await supabase.rpc('confirm_transfer_payment', { p_claim_id: claimId, p_received: received })
+    if (rpcError) throw rpcError
+    await Promise.all([refreshSettlements(), refreshOverview(), refreshNotifications()])
+    setToast(received ? 'Payment received and balance updated.' : 'Payment rejected. The amount remains outstanding.')
   }
 
   if (authLoading) return <div className="auth-wait"><div className="mark">CK<span>.</span></div><Spinner /><p>Preparing your seat at the table</p></div>
@@ -333,7 +393,7 @@ export default function App() {
         <NavButton icon="grid" text="Overview" active={route.view === 'dashboard'} onClick={() => navigate('dashboard')} />
         <NavButton icon="users" text="Groups" active={route.view === 'groups' || route.view === 'group'} onClick={() => navigate('groups')} />
         <NavButton icon="clock" text="Activity" active={route.view === 'activity'} onClick={() => navigate('activity')} />
-        <NavButton icon="receipt" text="Who to pay" active={route.view === 'dues'} onClick={() => navigate('dues')} />
+        <NavButton icon="receipt" text="Settlements" active={route.view === 'dues'} onClick={() => navigate('dues')} />
         <NavButton icon="bell" text="Notifications" active={route.view === 'notifications'} badge={unreadCount} onClick={() => navigate('notifications')} />
       </nav>
       <div className="sidebar-section space-top">PREFERENCES</div>
@@ -342,14 +402,14 @@ export default function App() {
     </aside>
     {mobileNav && <button className="nav-scrim" aria-label="Close menu" onClick={() => setMobileNav(false)} />}
     <div className="workspace-main">
-      <header className="app-topbar"><div className="topbar-left"><button className="icon-button mobile-menu" aria-label="Open menu" onClick={() => setMobileNav(true)}><Icon name="menu" /></button><span className="crumb">WORKSPACE</span><span className="slash">/</span><span className="crumb-current">{route.view === 'dashboard' ? 'Overview' : route.view === 'group' ? 'Group settings' : route.view === 'dues' ? 'Who to pay' : route.view === 'join' ? 'Join group' : route.view.charAt(0).toUpperCase() + route.view.slice(1)}</span></div><div className="topbar-right"><span className="online-dot" aria-hidden="true"/><span className="workspace-status">PRIVATE GROUP SPACE</span><button className="icon-button refresh-button" title="Refresh all records" aria-label="Refresh all records" onClick={() => { void refreshWorkspace(); void refreshGroup(); void refreshOverview(); void refreshNotifications() }}><Icon name="refresh" size={17}/></button>{refreshing && <span className="muted-small" aria-live="polite">Syncing</span>}{install.canPrompt && !install.installed && <button className="button button-outline install-shortcut" onClick={() => void install.install()}>Install app</button>}<button className="icon-button bell-top" aria-label={`Notifications, ${unreadCount} unread`} onClick={() => navigate('notifications')}><Icon name="bell" />{unreadCount > 0 && <span className="top-badge"/>}</button><button className="avatar-button" aria-label="Open my profile" onClick={() => navigate('profile')}><Avatar name={displayName(profile)} /></button></div></header>
+      <header className="app-topbar"><div className="topbar-left"><button className="icon-button mobile-menu" aria-label="Open menu" onClick={() => setMobileNav(true)}><Icon name="menu" /></button><span className="crumb">WORKSPACE</span><span className="slash">/</span><span className="crumb-current">{route.view === 'dashboard' ? 'Overview' : route.view === 'group' ? 'Group settings' : route.view === 'dues' ? 'Settlements' : route.view === 'join' ? 'Join group' : route.view.charAt(0).toUpperCase() + route.view.slice(1)}</span></div><div className="topbar-right"><span className="online-dot" aria-hidden="true"/><span className="workspace-status">PRIVATE GROUP SPACE</span><button className="icon-button refresh-button" title="Refresh all records" aria-label="Refresh all records" onClick={() => { void refreshWorkspace(); void refreshGroup(); void refreshOverview(); void refreshNotifications() }}><Icon name="refresh" size={17}/></button>{refreshing && <span className="muted-small" aria-live="polite">Syncing</span>}{install.canPrompt && !install.installed && <button className="button button-outline install-shortcut" onClick={() => void install.install()}>Install app</button>}<button className="icon-button bell-top" aria-label={`Notifications, ${unreadCount} unread`} onClick={() => navigate('notifications')}><Icon name="bell" />{unreadCount > 0 && <span className="top-badge"/>}</button><button className="avatar-button" aria-label="Open my profile" onClick={() => navigate('profile')}><Avatar name={displayName(profile)} /></button></div></header>
       <main id="content" className="page-content">
         {error && <div className="alert error-alert" role="alert"><span>{error}</span><button aria-label="Dismiss error" onClick={() => setError('')}><Icon name="close" size={17}/></button></div>}
         {route.view !== 'join' && !profile?.name_confirmed_at && !workspaceLoading && <div className="onboarding-bar"><div className="progress-ring" style={{ '--progress': '50%' } as CSSProperties}><span>1/2</span></div><div><strong>Make it yours.</strong><p>Confirm your first and last name to finish setting up your account.</p></div><button className="button button-outline" onClick={() => navigate('profile')}>Complete profile <Icon name="arrow" size={16}/></button></div>}
         {route.view === 'join' && <JoinPage token={route.token} onJoin={async (token) => { const { data, error: joinError } = await client.rpc('join_group', { p_token: token }); if (joinError) throw joinError; await refreshWorkspace(); setGroupId(data as string); setToast('Welcome to your new group!'); navigate('dashboard') }} />}
         {route.view === 'dashboard' && <>
           <div className="page-heading compact-heading"><div><p className="micro accent">YOUR SHARED LEDGER</p><h1>Your chai circles<span className="punctuation">.</span></h1><p>Choose a group to see its balance and latest sessions.</p></div><button className="button button-copper heading-cta" onClick={() => navigate('groups')}><Icon name="plus" size={18}/> New group</button></div>
-          <div className="overview-title"><h2>All groups <small>{groups.length}</small></h2><button className="subtle-link" onClick={() => navigate('dues')}>Who do I owe? <Icon name="arrow" size={15}/></button></div>
+          <div className="overview-title"><h2>All groups <small>{groups.length}</small></h2><button className="subtle-link" onClick={() => navigate('dues')}>Settlements <Icon name="arrow" size={15}/></button></div>
           {workspaceLoading && !groups.length ? <LoadingPanel/> : !groups.length ? <Empty icon="users" title="Your chai story starts here" detail="Create your first group and share the invite." action={<button className="button button-copper" onClick={() => navigate('groups')}>Create group</button>}/> : <div className="overview-groups" aria-label="Your groups">{groups.map(g => {
             const summary = overview.find(x => x.id === g.id)
             const amount = summary?.net ?? 0
@@ -360,22 +420,22 @@ export default function App() {
             </button>
           })}<button className="overview-create-card" onClick={() => navigate('groups')}><Icon name="plus" size={19}/><span>Create another group</span></button></div>}
           <div className="overview-bottom">
-            <section className="panel overview-quick"><SectionHead label="GET THINGS DONE" title="Quick actions"/><div className="quick-actions"><button onClick={() => navigate('record')} className="quick-action" disabled={!groups.length}><Icon name="cup"/>Record a session<Icon name="arrow" size={16}/></button><button onClick={() => navigate('dues')} className="quick-action"><Icon name="receipt"/>Review who to pay<Icon name="arrow" size={16}/></button><button onClick={() => navigate('notifications')} className="quick-action"><Icon name="bell"/>Notifications{unreadCount > 0 && <span className="nav-badge">{unreadCount}</span>}</button></div></section>
+            <section className="panel overview-quick"><SectionHead label="GET THINGS DONE" title="Quick actions"/><div className="quick-actions"><button onClick={() => navigate('record')} className="quick-action" disabled={!groups.length}><Icon name="cup"/><span className="quick-label">Record a session</span><Icon name="arrow" size={16}/></button><button onClick={() => navigate('dues')} className="quick-action"><Icon name="receipt"/><span className="quick-label">Monthly settlements</span><Icon name="arrow" size={16}/></button><button onClick={() => navigate('notifications')} className="quick-action"><Icon name="bell"/><span className="quick-label">Notifications</span><span className="quick-tail">{unreadCount > 0 && <span className="nav-badge">{unreadCount}</span>}<Icon name="arrow" size={16}/></span></button></div></section>
             <section className="panel overview-help"><SectionHead label="AT A GLANCE" title="Your outstanding balances"/><div className="overview-totals"><div><span>Across your groups · owed</span><strong className="negative">{money(overview.reduce((sum,g) => sum + Math.min(0,g.net), 0))}</strong></div><div><span>Across your groups · to receive</span><strong className="positive">{money(overview.reduce((sum,g) => sum + Math.max(0,g.net), 0))}</strong></div></div><p className="muted-small">Balances are independent in each group. These are current positions, not confirmed settlements.</p></section>
           </div>
         </>}
         {route.view === 'groups' && <GroupsPage groups={groups} groupId={groupId} userId={user.id} onChoose={(id) => { setGroupId(id); navigate('group', `/app/groups/${id}`) }} onGroupCreated={async (id) => { await refreshWorkspace(); setGroupId(id); navigate('group', `/app/groups/${id}`); setToast('Group created. Invite your colleagues!') }} />}
         {route.view === 'group' && <GroupDetailsPage key={activeGroup?.id ?? 'empty'} group={activeGroup?.id === route.token ? activeGroup : null} members={members} balances={balances} expenses={expenses} userId={user.id} loading={groupLoading} onBack={() => navigate('dashboard')} onRecord={() => navigate('record')} onActivity={() => navigate('activity')} onInviteSuccess={setToast} onChanged={async () => { await refreshWorkspace(); await refreshGroup(); await refreshOverview() }} onMembershipChanged={async () => { await refreshWorkspace(); navigate('dashboard') }} />}
-        {route.view === 'dues' && <DuesPage overviews={overview} userId={user.id} loading={overviewLoading} />}
+        {route.view === 'dues' && <DuesPage groups={groups} overviews={overview} userId={user.id} periods={settlementPeriods} transfers={settlementTransfers} claims={paymentClaims} loading={overviewLoading || settlementLoading} onCloseMonth={closeMonth} onClaimPaid={claimTransfer} onConfirm={decideClaim} />}
         {route.view === 'record' && <RecordPage group={activeGroup} members={members} expenses={expenses} userId={user.id} onBack={() => navigate('dashboard')} onSaved={async () => { await Promise.all([refreshGroup(), refreshOverview(), refreshNotifications()]); setToast('Session recorded. Everyone’s share has been saved.'); navigate('dashboard') }} />}
         {route.view === 'activity' && <ActivityPage group={activeGroup} expenses={expenses} members={members} loading={groupLoading} onRecord={() => navigate('record')} />}
-        {route.view === 'notifications' && <NotificationsPage notifications={notifications} unreadCount={unreadCount} hasMore={hasMoreNotifications} onMore={() => setNotificationLimit((x) => x + 30)} onMarkRead={markRead} onMarkAll={markAllRead} onGo={(n) => { if (n.group_id && groups.some((g) => g.id === n.group_id)) setGroupId(n.group_id); navigate(n.target_type === 'expense' ? 'activity' : 'groups') }} />}
+        {route.view === 'notifications' && <NotificationsPage notifications={notifications} unreadCount={unreadCount} hasMore={hasMoreNotifications} onMore={() => setNotificationLimit((x) => x + 30)} onMarkRead={markRead} onMarkAll={markAllRead} onGo={(n) => { if (n.group_id && groups.some((g) => g.id === n.group_id)) setGroupId(n.group_id); navigate(n.target_type === 'expense' ? 'activity' : n.target_type === 'settlement_transfer' ? 'dues' : 'groups') }} />}
         {route.view === 'profile' && <ProfilePage install={install} user={user} profile={profile} onSave={async () => { await refreshWorkspace(); await refreshGroup(); await refreshOverview(); setToast('Your profile has been updated.') }} onSignOut={signOut} />}
         {route.view !== 'join' && <footer className="app-footer"><span>CHAI KHAPA <span className="footer-dot">✳</span> BUILT FOR THE SHARED BREAK</span><span><a href="/privacy/">Privacy</a><a href="/terms/">Terms</a><span>© 2026</span></span></footer>}
       </main>
     </div>
     {toast && <div className="toast" role="status"><Icon name="check" size={18}/>{toast}<button aria-label="Dismiss" onClick={() => setToast('')}><Icon name="close" size={16}/></button></div>}
-    <nav className="bottom-nav" aria-label="Mobile navigation"><NavMobile icon="grid" active={route.view === 'dashboard'} label="Home" onClick={() => navigate('dashboard')}/><NavMobile icon="users" active={route.view === 'groups' || route.view === 'group'} label="Groups" onClick={() => navigate('groups')}/><button className="mobile-add" aria-label="Record chai session" onClick={() => navigate('record')}><Icon name="plus" size={24}/></button><NavMobile icon="receipt" active={route.view === 'dues'} label="To pay" onClick={() => navigate('dues')}/><NavMobile icon="bell" active={route.view === 'notifications'} label="Inbox" count={unreadCount} onClick={() => navigate('notifications')}/></nav>
+    <nav className="bottom-nav" aria-label="Mobile navigation"><NavMobile icon="grid" active={route.view === 'dashboard'} label="Home" onClick={() => navigate('dashboard')}/><NavMobile icon="users" active={route.view === 'groups' || route.view === 'group'} label="Groups" onClick={() => navigate('groups')}/><button className="mobile-add" aria-label="Record chai session" onClick={() => navigate('record')}><Icon name="plus" size={24}/></button><NavMobile icon="receipt" active={route.view === 'dues'} label="Settle" onClick={() => navigate('dues')}/><NavMobile icon="bell" active={route.view === 'notifications'} label="Inbox" count={unreadCount} onClick={() => navigate('notifications')}/></nav>
   </div>
 }
 
@@ -480,12 +540,61 @@ function GroupDetailsPage({ group, members, balances, expenses, userId, loading,
   </>
 }
 
-function DuesPage({ overviews, userId, loading }: { overviews: GroupOverview[]; userId: string; loading: boolean }) {
-  const suggestions = overviews.flatMap(g => computeTransfers(g.balances).filter(t => t.from === userId).map(t => ({ ...t, groupId: g.id, groupName: g.name, recipient: displayName(g.balances.find(b => b.user_id === t.to)) })))
-  const total = suggestions.reduce((sum,s)=>sum+s.amountPaisa,0)
-  return <><div className="page-heading short"><div><p className="micro accent">YOUR MONEY, CLEARLY</p><h1>Who to pay<span className="punctuation">.</span></h1><p>Current suggested transfers based on the group ledger.</p></div></div>
-    <div className="dues-callout"><div><p className="micro">CURRENT NET SUGGESTIONS</p><strong>{money(total)}</strong><span>Across {overviews.length} groups</span></div><p>These are <b>unconfirmed previews</b>, not recorded payments or month-end demands. Suggestions can change when new sessions are logged. The payment confirmation flow is coming in the settlement release.</p></div>
-    {loading ? <LoadingPanel/> : suggestions.length ? <div className="due-list">{suggestions.map(s => <div className="due-row" key={`${s.groupId}:${s.to}:${s.from}`}><div><span className="micro">{s.groupName}</span><h2>{s.recipient}</h2><p>You would pay this colleague</p></div><strong>{money(s.amountPaisa)}</strong></div>)}</div> : <Empty icon="check" title="No transfers suggested" detail="You currently have no net debt within your groups. This may change after new sessions." />}
+function DuesPage({ groups, overviews, userId, periods, transfers, claims, loading, onCloseMonth, onClaimPaid, onConfirm }: {
+  groups: Group[]; overviews: GroupOverview[]; userId: string; periods: SettlementPeriod[];
+  transfers: SettlementTransfer[]; claims: PaymentClaim[]; loading: boolean;
+  onCloseMonth: (groupId: string, month: string) => Promise<void>;
+  onClaimPaid: (transferId: string, amount: number) => Promise<void>;
+  onConfirm: (claimId: string, received: boolean) => Promise<void>
+}) {
+  const [busy, setBusy] = useState<string | null>(null)
+  const [actionError, setActionError] = useState('')
+  const [payChoice, setPayChoice] = useState<Record<string, 'exact' | 'round'>>({})
+  const previousMonth = useMemo(() => {
+    const today = new Date()
+    const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Karachi', year: 'numeric', month: '2-digit' }).formatToParts(today)
+    const year = Number(parts.find(p => p.type === 'year')?.value ?? today.getUTCFullYear())
+    const month = Number(parts.find(p => p.type === 'month')?.value ?? today.getUTCMonth() + 1)
+    return new Date(Date.UTC(year, month - 2, 1)).toISOString().slice(0,10)
+  }, [])
+  function getName(groupId: string, id: string) {
+    return displayName(overviews.find(g => g.id === groupId)?.balances.find(b => b.user_id === id))
+  }
+  async function run(key: string, action: () => Promise<void>) {
+    setActionError(''); setBusy(key)
+    try { await action() } catch (reason) { setActionError(messageOf(reason)) } finally { setBusy(null) }
+  }
+  const suggestions = overviews.flatMap(g => computeTransfers(g.balances).filter(t => t.from === userId).map(t => ({ ...t, groupId: g.id, groupName: g.name, recipient: getName(g.id, t.to) })))
+  const relevant = transfers.filter(t => t.debtor_user_id === userId || t.creditor_user_id === userId)
+  const pending = relevant.filter(t => t.status !== 'confirmed')
+  const total = pending.filter(t => t.debtor_user_id === userId).reduce((sum, t) => sum + Number(t.amount_paisa), 0)
+  const openMonths = groups.filter(g => g.owner_user_id === userId && !periods.some(p => p.group_id === g.id && p.period_month === previousMonth))
+  return <>
+    <div className="page-heading short"><div><p className="micro accent">SETTLE WITH CONFIDENCE</p><h1>Monthly settlements<span className="punctuation">.</span></h1><p>Track what you owe, confirm money received, and keep every month accountable.</p></div></div>
+    <div className="settlement-summary"><div><p className="micro">YOU STILL OWE · CONFIRMATION PENDING INCLUDED</p><strong>{money(total)}</strong><p>Only confirmed receipts clear a settlement.</p></div><div><p className="micro">HOW IT WORKS</p><p>At month-end the group owner closes the month. Pay outside Chai Khapa, mark it paid here, and the recipient confirms the receipt. No payments are processed by this app.</p></div></div>
+    {actionError && <div role="alert" className="alert error-alert">{actionError}</div>}
+    {openMonths.length > 0 && <section className="panel settlement-close"><SectionHead label="GROUP OWNER CONTROLS" title="Close the completed month"/><p className="muted-small">Close {new Date(`${previousMonth}T12:00:00Z`).toLocaleDateString('en-PK', { month: 'long', year: 'numeric', timeZone: 'UTC' })} after the month ends in Pakistan time. Existing session entries for the closed month will be locked.</p><div className="settlement-close-actions">{openMonths.map(g => <button key={g.id} className="button button-outline" disabled={busy !== null} onClick={() => { if (window.confirm(`Close ${previousMonth} for ${g.name}? This locks the month's records.`)) void run(`close:${g.id}`, () => onCloseMonth(g.id, previousMonth)) }}>{busy === `close:${g.id}` ? <Spinner/> : <Icon name="check" size={16}/>} Close {g.name}</button>)}</div></section>}
+    <section className="panel settlement-ledger"><SectionHead label="PERIOD LEDGER" title="Your settlement instructions" aside={<span className="people-count">{pending.length} pending</span>}/>
+      {loading ? <LoadingPanel/> : !periods.length ? <Empty icon="receipt" title="No closed months yet" detail="An owner can close each completed month. Until then, you can review live provisional balances below."/> : periods.map(p => {
+        const rows = relevant.filter(t => t.period_id === p.id)
+        const groupName = groups.find(g => g.id === p.group_id)?.name ?? 'Group'
+        if (!rows.length) return null
+        return <div className="settlement-period" key={p.id}><div className="settlement-period-head"><h3>{new Date(`${p.period_month}T12:00:00Z`).toLocaleDateString('en-PK',{month:'long',year:'numeric',timeZone:'UTC'})}</h3><span>{groupName}</span></div>{rows.map(t => {
+          const debtor = t.debtor_user_id === userId
+          const otherId = debtor ? t.creditor_user_id : t.debtor_user_id
+          const due = Number(t.amount_paisa)
+          const rounded = Math.ceil(due / 100) * 100
+          const selectedPaid = payChoice[t.id] === 'exact' ? due : rounded
+          const claim = claims.find(c => c.transfer_id === t.id && c.status === 'pending')
+          return <div className="settlement-transfer" key={t.id}><div className="settlement-transfer-info"><span className="micro">{debtor ? 'PAY TO' : 'RECEIVE FROM'}</span><h4>{getName(t.group_id, otherId)}</h4><strong>{money(due)}</strong><span className={`settlement-status status-${t.status}`}>{t.status === 'confirmed' ? 'Confirmed & settled' : t.status === 'awaiting_confirmation' ? 'Awaiting receipt confirmation' : 'Payment outstanding'}</span></div>
+          {debtor && t.status === 'unpaid' && <div className="settlement-action"><label className="field-label" htmlFor={`pay-method-${t.id}`}>AMOUNT YOU ACTUALLY PAID</label><select id={`pay-method-${t.id}`} value={payChoice[t.id] ?? 'round'} onChange={e => setPayChoice(v => ({...v,[t.id]: e.target.value as 'exact'|'round'}))}><option value="round">Rounded transfer · {money(rounded)}</option><option value="exact">Exact amount · {money(due)}</option></select>{rounded > due && <p className="muted-small">Rounded amount includes a voluntary {money(rounded-due)} extra. Only the exact debt is cleared.</p>}<button className="button button-copper" disabled={busy !== null} onClick={() => { if(window.confirm(`Have you ALREADY sent ${money(selectedPaid)} to ${getName(t.group_id,otherId)} outside Chai Khapa?`)) void run(t.id,()=>onClaimPaid(t.id,selectedPaid)) }}>{busy===t.id?<Spinner/>:<Icon name="check" size={16}/>} Mark as paid</button></div>}
+          {!debtor && t.status === 'awaiting_confirmation' && claim && <div className="settlement-action"><p className="muted-small">They reported paying {money(claim.actual_paid_paisa)}. Did you receive it?</p><div className="settlement-buttons"><button className="button button-copper" disabled={busy !== null} onClick={() => void run(claim.id,()=>onConfirm(claim.id,true))}>Confirm received</button><button className="button button-outline" disabled={busy !== null} onClick={() => void run(claim.id,()=>onConfirm(claim.id,false))}>Not received</button></div></div>}
+          </div>
+        })}</div>
+      })}
+      {!loading && periods.length>0 && relevant.length===0 && <Empty icon="check" title="Nothing to settle in closed months" detail="Your monthly expense share is already balanced."/>}
+    </section>
+    <section className="panel settlement-preview"><SectionHead label="LIVE BALANCES" title="Before the next month-end"/><p className="muted-small">These are provisional suggestions across all sessions and confirmed receipts. They can change as more chai is recorded; they are not payment requests.</p>{suggestions.length ? <div className="due-list">{suggestions.map(s => <div className="due-row" key={`${s.groupId}:${s.to}:${s.from}`}><div><span className="micro">{s.groupName}</span><h2>{s.recipient}</h2><p>Current suggested transfer</p></div><strong>{money(s.amountPaisa)}</strong></div>)}</div> : <p className="muted-small">No additional transfers suggested at the moment.</p>}</section>
   </>
 }
 
@@ -537,5 +646,5 @@ function ProfilePage({ install, user, profile, onSave, onSignOut }: { install: R
   const [busy, setBusy] = useState(false), [error, setError] = useState('')
   useEffect(() => { if (profile?.name_confirmed_at) { setFirst(profile.first_name || ''); setLast(profile.last_name || '') } }, [profile])
   async function save(e: FormEvent<HTMLFormElement>) { e.preventDefault(); if (!supabase) return; setBusy(true); setError(''); try { const { error: rpcError } = await supabase.rpc('complete_profile', { p_first_name: first.trim(), p_last_name: last.trim() }); if (rpcError) throw rpcError; await onSave() } catch (reason) { setError(messageOf(reason)) } finally { setBusy(false) } }
-  return <><div className="page-heading short"><div><p className="micro accent">ACCOUNT DETAILS</p><h1>Your profile<span className="punctuation">.</span></h1><p>The name your chai group will recognize.</p></div></div><div className="two-col profile-grid"><section className="panel"><SectionHead label="YOUR DETAILS" title="The basics"/><form onSubmit={(e) => void save(e)}><div className="profile-avatar-row"><Avatar name={displayName(profile) === 'Colleague' ? `${first} ${last}` : displayName(profile)} size="md"/><div><strong>{profile?.name_confirmed_at ? 'Profile confirmed' : 'One last introduction'}</strong><p className="muted-small">These names appear in your group ledger.</p></div></div><div className="input-grid"><div><label className="field-label" htmlFor="first-name">FIRST NAME</label><input id="first-name" maxLength={80} required value={first} onChange={(e) => setFirst(e.target.value)}/></div><div><label className="field-label" htmlFor="last-name">LAST NAME</label><input id="last-name" maxLength={80} required value={last} onChange={(e) => setLast(e.target.value)}/></div></div><label className="field-label" htmlFor="account-email">GOOGLE ACCOUNT</label><input id="account-email" readOnly value={user.email ?? ''} /><p className="field-help">Your email comes from Google and isn't editable here.</p>{error && <p className="form-error" role="alert">{error}</p>}<button className="button button-copper form-submit" type="submit" disabled={busy || !first.trim() || !last.trim()}>{busy ? <Spinner/> : <Icon name="check" size={17}/>} {profile?.name_confirmed_at ? 'Save changes' : 'Confirm my name'}</button></form></section><aside className="panel profile-side"><SectionHead label="YOUR ACCOUNT" title="Getting started"/><div className="setup-progress"><span className="progress-ring large-ring" style={{ '--progress': profile?.name_confirmed_at ? '100%' : '50%' } as CSSProperties}><strong>{profile?.name_confirmed_at ? '2/2' : '1/2'}</strong></span><div><strong>{profile?.name_confirmed_at ? 'All set.' : 'Nearly there.'}</strong><p className="muted-small">Google Sign-In is connected. Confirm your name to complete the essentials.</p></div></div><div className="setup-step"><Icon name="check" size={18}/> Google account connected</div><div className={`setup-step ${profile?.name_confirmed_at ? '' : 'pending'}`}><Icon name={profile?.name_confirmed_at ? 'check' : 'clock'} size={18}/> Name confirmed</div><div className="divider"/><p className="muted-small">Raast and wallet details will be added with month-end settlements. They're optional, not part of profile completion.</p><div className="divider"/><p className="micro">INSTALL CHAI KHAPA</p><p className="muted-small">{install.installed ? 'App is installed.' : install.instructions}</p>{!install.installed && install.canPrompt && <button type="button" className="button button-outline" onClick={() => void install.install()}><Icon name="plus" size={17}/> Install app</button>}<button className="button button-outline" onClick={() => void onSignOut()}><Icon name="logout" size={17}/> Sign out</button></aside></div></>
+  return <><div className="page-heading short"><div><p className="micro accent">ACCOUNT DETAILS</p><h1>Your profile<span className="punctuation">.</span></h1><p>The name your chai group will recognize.</p></div></div><div className="two-col profile-grid"><section className="panel"><SectionHead label="YOUR DETAILS" title="The basics"/><form onSubmit={(e) => void save(e)}><div className="profile-avatar-row"><Avatar name={displayName(profile) === 'Colleague' ? `${first} ${last}` : displayName(profile)} size="md"/><div><strong>{profile?.name_confirmed_at ? 'Profile confirmed' : 'One last introduction'}</strong><p className="muted-small">These names appear in your group ledger.</p></div></div><div className="input-grid"><div><label className="field-label" htmlFor="first-name">FIRST NAME</label><input id="first-name" maxLength={80} required value={first} onChange={(e) => setFirst(e.target.value)}/></div><div><label className="field-label" htmlFor="last-name">LAST NAME</label><input id="last-name" maxLength={80} required value={last} onChange={(e) => setLast(e.target.value)}/></div></div><label className="field-label" htmlFor="account-email">GOOGLE ACCOUNT</label><input id="account-email" readOnly value={user.email ?? ''} /><p className="field-help">Your email comes from Google and isn't editable here.</p>{error && <p className="form-error" role="alert">{error}</p>}<button className="button button-copper form-submit" type="submit" disabled={busy || !first.trim() || !last.trim()}>{busy ? <Spinner/> : <Icon name="check" size={17}/>} {profile?.name_confirmed_at ? 'Save changes' : 'Confirm my name'}</button></form></section><aside className="panel profile-side"><SectionHead label="YOUR ACCOUNT" title={profile?.name_confirmed_at ? 'Profile complete' : 'Getting started'}/><div className="setup-progress"><span className="progress-ring large-ring" style={{ '--progress': profile?.name_confirmed_at ? '100%' : '50%' } as CSSProperties}><strong>{profile?.name_confirmed_at ? '2/2' : '1/2'}</strong></span><div><strong>{profile?.name_confirmed_at ? 'All set.' : 'Nearly there.'}</strong><p className="muted-small">{profile?.name_confirmed_at ? 'Your Google account and display name are ready. You can update your name anytime.' : 'Confirm your first and last name to finish the essentials.'}</p></div></div><div className="setup-step"><Icon name="check" size={18}/> Google account connected</div><div className={`setup-step ${profile?.name_confirmed_at ? '' : 'pending'}`}><Icon name={profile?.name_confirmed_at ? 'check' : 'clock'} size={18}/> Name confirmed</div><p className="muted-small setup-footer">Raast and wallet details are optional and will be added later.</p><div className="divider"/><p className="micro">INSTALL CHAI KHAPA</p><p className="muted-small">{install.installed ? 'App is installed.' : install.instructions}</p>{!install.installed && install.canPrompt && <button type="button" className="button button-outline" onClick={() => void install.install()}><Icon name="plus" size={17}/> Install app</button>}<button className="button button-outline" onClick={() => void onSignOut()}><Icon name="logout" size={17}/> Sign out</button></aside></div></>
 }

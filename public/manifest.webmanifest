@@ -6,8 +6,8 @@
   "start_url": "/app",
   "scope": "/",
   "display": "standalone",
-  "background_color": "#313E4B",
-  "theme_color": "#313E4B",
+  "background_color": "#273440",
+  "theme_color": "#273440",
   "orientation": "any",
   "icons": [
     { "src": "/icons/chai-khapa-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
