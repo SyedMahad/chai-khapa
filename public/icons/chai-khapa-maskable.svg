@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="Chai Khapa: ledger inside a steaming chai cup">
+<title>Chai Khapa — Chai Ledger</title>
+<rect width="512" height="512" fill="#273440"/>
+<g transform="translate(256 256) scale(0.84) translate(-256 -256)">
+  <path d="M215 177 C196 157 199 141 220 118 C236 99 239 88 231 72 C255 89 257 109 239 133 C227 148 224 158 229 171" fill="none" stroke="#F4F5F3" stroke-width="15" stroke-linecap="round"/>
+  <path d="M283 176 C266 159 268 147 283 131 C294 117 297 108 291 97 C312 111 314 126 300 144 C291 156 289 165 294 172" fill="none" stroke="#F4F5F3" stroke-width="13" stroke-linecap="round"/>
+  <path d="M146 213 H344 C353 213 360 220 360 229 V279 C360 354 320 393 253 393 H249 C183 393 141 354 141 279 V229 C141 220 136 213 146 213 Z" fill="none" stroke="#DC9D75" stroke-width="17" stroke-linejoin="round"/>
+  <path d="M359 231 C385 222 414 233 415 265 C415 295 391 315 360 307" fill="none" stroke="#DC9D75" stroke-width="17" stroke-linecap="round"/>
+  <circle cx="194" cy="268" r="11" fill="#DC9D75"/>
+  <circle cx="194" cy="308" r="11" fill="#DC9D75"/>
+  <circle cx="194" cy="348" r="11" fill="#DC9D75"/>
+  <path d="M227 268 H317 M227 308 H317 M227 348 H297" fill="none" stroke="#F4F5F3" stroke-width="13" stroke-linecap="round"/>
+</g>
+</svg>
