@@ -14,17 +14,18 @@
 
   /* Foundations */
   --color-bg: #313E4B;
-  --color-surface: #41505F;
-  --color-surface-raised: #4B5C6A;
+  --color-surface: #485D6E;
+  --color-surface-raised: #546B7C;
 
   /* Content */
   --color-text: #F4F5F3;
-  --color-muted: #CBD3DA;
-  --color-muted-quiet: #B8C4CE;
+  --color-muted: #E1E7EC;
+  --color-muted-quiet: #C4CFD9;
 
   /* Lines and interactive states */
-  --color-border: #6A7A88;
-  --color-border-soft: #596A78;
+  --color-border: #8193A1;
+  --color-border-hover: #9EADB9;
+  --color-border-soft: #718391;
   --color-accent: #DC9D75;
   --color-accent-hover: #F0B58F;
   --color-on-accent: #25313A;

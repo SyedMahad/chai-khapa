@@ -1,0 +1,156 @@
+/* PHASE 3.5 – smoky slate, purposeful surfaces and compact mobile-first screens.
+   All actual color values live in /public/theme.css. No hard-coded hex values here. */
+:root { font-synthesis: none; }
+html,body,#root { min-height:100%; }
+.workspace, .workspace-main { background:var(--color-bg); }
+.sidebar {background:var(--color-surface);border-color:var(--color-border-soft);}
+.app-topbar {background:var(--color-bg);height:62px;}
+.page-content{padding-top:26px;padding-bottom:23px;max-width:1360px;}
+.page-heading{margin-bottom:21px;align-items:center;}
+.page-heading h1{font-size:clamp(35px,3.5vw,48px);line-height:1.14;margin:2px 0 6px;}
+.page-heading .micro{margin-bottom:6px;}
+.page-heading p:not(.micro){font-size:13px;}
+.section-head h2{font-size:23px;}
+.panel{background:var(--color-surface);border-color:var(--color-border);}
+.panel-description,.muted-small,.panel-bottom-note{color:var(--color-muted);}
+.side-links .nav-item:hover{background:var(--color-surface-raised);}
+.sidebar-tip {background:var(--color-bg);}
+.brand-symbol{display:inline-grid;place-items:center;flex:0 0 auto;width:39px;height:39px;color:var(--color-accent);background:var(--color-bg);border:1px solid var(--color-accent);border-radius:10px;}
+.brand-symbol svg{stroke-width:2.1;}
+.account-mini strong{font-size:12px;}
+/* All overview groups visible without forcing the user to commit to a hidden selection */
+.overview-title{display:flex;justify-content:space-between;align-items:center;gap:16px;margin:24px 0 12px;}
+.overview-title h2{font:400 21px Georgia,serif;margin:0;}
+.overview-title h2 small{font:700 11px system-ui;color:var(--color-accent);margin-left:5px;}
+.overview-groups{display:grid;grid-template-columns:repeat(auto-fill,minmax(242px,1fr));gap:13px;}
+.overview-group-card,.overview-create-card{background:var(--color-surface);border:1px solid var(--color-border);color:var(--color-text);border-radius:14px;min-height:157px;padding:17px;text-align:left;display:flex;flex-direction:column;justify-content:space-between;min-width:0;}
+.overview-group-card.is-selected{border-color:var(--color-accent);}
+.overview-group-top{display:flex;align-items:center;gap:11px;}
+.overview-group-top>svg{margin-left:auto;color:var(--color-accent);}
+.overview-group-name{font-size:14px;font-weight:750;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.overview-group-amount{font-size:27px;letter-spacing:-.045em;font-weight:700;line-height:1.1;}
+.overview-group-meta{font-size:11px;color:var(--color-muted);line-height:1.45;}
+.overview-create-card{border-style:dashed;align-items:center;justify-content:center;gap:10px;text-align:center;min-height:157px;color:var(--color-text);font-weight:750;}
+.overview-create-card svg{color:var(--color-accent);}
+.overview-bottom{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:18px;align-items:stretch;}
+.overview-bottom .panel{padding:20px;}
+.overview-bottom .section-head{margin-bottom:12px;}
+.quick-actions{display:grid;grid-template-columns:1fr;gap:0;}
+.quick-action{width:100%;display:flex;align-items:center;gap:12px;padding:10px 8px;background:none;color:var(--color-text);text-align:left;border-top:1px solid var(--color-border-soft);font-size:12px;font-weight:650;}
+.quick-action>svg:first-child{color:var(--color-accent);}
+.quick-action>svg:last-child,.quick-action>.nav-badge{margin-left:auto;}
+.overview-totals{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:5px 0 13px;}
+.overview-totals div{background:var(--color-bg);padding:13px;border-radius:10px;min-width:0;}
+.overview-totals span{display:block;color:var(--color-muted);font-size:11px;line-height:1.4;margin-bottom:7px;}
+.overview-totals strong{font-size:20px;letter-spacing:-.05em;}
+.positive{color:var(--color-success);}
+.negative{color:var(--color-danger);}
+/* Group management */
+.clickable-group{cursor:pointer;}
+.group-detail-layout{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(295px,.85fr);gap:16px;align-items:start;}
+.group-detail-main,.group-detail-aside{min-width:0;}
+.group-detail-aside{display:grid;gap:15px;}
+.group-detail-aside .panel{padding:22px;}
+.group-detail-aside .panel .button{margin-top:17px;max-width:100%;}
+.tabs{display:flex;gap:5px;margin-bottom:15px;border-bottom:1px solid var(--color-border);}
+.tabs button{background:none;color:var(--color-muted);padding:12px 16px;border-bottom:2px solid transparent;font-weight:750;font-size:13px;}
+.tabs button.active{border-bottom-color:var(--color-accent);color:var(--color-text);}
+.member-management-row{display:flex;align-items:center;gap:12px;padding:13px 0;border-top:1px solid var(--color-border-soft);}
+.member-management-row>div{flex:1;min-width:0;}
+.member-management-row strong,.member-management-row span{display:block;}
+.member-management-row strong{font-size:13px;}
+.member-management-row strong small{color:var(--color-muted);font-weight:500;}
+.member-management-row span{font-size:11px;color:var(--color-muted);margin-top:4px;}
+.member-management-row b{font-size:13px;white-space:nowrap;}
+.manage-inline{display:flex;gap:10px;align-items:center;}
+.manage-inline>input,.manage-inline>select{flex:1;min-width:0;}
+.manage-inline .button{flex-shrink:0;}
+.text-back{color:var(--color-accent);background:none;padding:0;font-weight:800;font-size:10px;letter-spacing:.1em;}
+.danger-outline{color:var(--color-danger);border-color:var(--color-danger);}
+.confirm-box{border-top:1px solid var(--color-border);margin-top:15px;padding-top:13px;display:flex;flex-wrap:wrap;gap:9px;}
+.confirm-box p{flex:1 0 100%;font-size:12px;line-height:1.6;color:var(--color-muted);}
+.invite-box input{width:100%;font-size:11px;}
+.invite-box-inline{background:var(--color-bg);}
+/* Provisional transfer overview */
+.dues-callout{background:var(--color-surface-raised);border:1px solid var(--color-border);border-radius:13px;padding:22px;display:grid;grid-template-columns:1fr 1.35fr;gap:25px;align-items:center;margin-bottom:17px;}
+.dues-callout strong{font-size:36px;color:var(--color-accent-hover);line-height:1.2;display:block;}
+.dues-callout span{font-size:12px;color:var(--color-muted);}
+.dues-callout p:last-child{color:var(--color-muted);font-size:12px;line-height:1.7;margin:0;}
+.due-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(245px,1fr));gap:13px;}
+.due-row{padding:19px 20px;background:var(--color-surface);border:1px solid var(--color-border);border-radius:12px;display:flex;gap:14px;align-items:center;justify-content:space-between;}
+.due-row h2{font:400 25px Georgia,serif;margin:2px 0 7px;}
+.due-row p{color:var(--color-muted);font-size:11px;margin:0;}
+.due-row strong{color:var(--color-accent);white-space:nowrap;font-size:14px;}
+/* Contrast: solid surfaces rather than semi-transparent color-mix panels. */
+.sidebar,.panel,.stat-card,.group-switcher,.group-card,.record-summary,.notification-item,.join-card{box-shadow:none;}
+input::placeholder{opacity:1;color:var(--color-muted-quiet);}
+input[readonly]{opacity:1;}
+.avatar{background:var(--color-accent);color:var(--color-on-accent);}
+/* Hover only on real hover devices; motion does not carry meaning. */
+@media (hover:hover) and (pointer:fine){
+  .overview-group-card,.overview-create-card,.group-card,.panel,.due-row,.attendee,.quick-action,.nav-item,.expense-row,.notification-item{transition:border-color .15s ease,background-color .15s ease,transform .15s ease;}
+  .overview-group-card:hover,.overview-create-card:hover,.group-card:hover,.due-row:hover{border-color:var(--color-accent);background:var(--color-surface-raised);transform:translateY(-1px);}
+  .panel:hover{border-color:var(--color-border-hover, var(--color-border));}
+  .quick-action:hover,.expense-row:hover,.notification-item:hover{background:var(--color-surface-raised);}
+  .attendee:hover{background:var(--color-surface-raised);border-color:var(--color-accent);}
+  .tabs button:hover{color:var(--color-text);}
+}
+.overview-group-card:focus-visible,.overview-create-card:focus-visible,.clickable-group:focus-visible{outline:3px solid var(--color-focus);outline-offset:3px;}
+/* Desktop: dashboard fits typical screens with no deliberately huge blank panels. */
+@media (min-width:981px){.overview-bottom .panel{min-height:206px}.app-footer{margin-top:22px;padding-top:18px;}}
+@media (max-width:1070px){.overview-bottom,.group-detail-layout{grid-template-columns:1fr;}}
+/* Mobile PWA: tactile targets, sticky bottom nav, safe-area, no horizontal scrolling. */
+@media (max-width:740px){
+  .app-topbar{height:58px;}
+  .page-content{padding:20px 15px calc(105px + env(safe-area-inset-bottom));}
+  .page-heading h1{font-size:clamp(32px,8vw,42px);}
+  .page-heading{gap:12px;align-items:flex-start;}
+  .heading-cta{font-size:12px!important;gap:7px!important;padding:11px 12px!important;white-space:nowrap;}
+  .overview-groups{grid-template-columns:1fr 1fr;gap:10px;}
+  .overview-group-card,.overview-create-card{min-height:146px;padding:14px;}
+  .overview-group-top{gap:7px;}
+  .overview-group-name{font-size:12px;}
+  .overview-group-amount{font-size:23px;}
+  .overview-group-meta{font-size:10px;}
+  .overview-group-top .group-icon{display:none;}
+  .overview-totals{grid-template-columns:1fr 1fr;}
+  .overview-bottom{grid-template-columns:1fr;gap:10px;margin-top:13px;}
+  .overview-bottom .panel{padding:16px;}
+  .group-detail-layout{grid-template-columns:1fr;}
+  .member-management-row{min-height:56px;}
+  .dues-callout{grid-template-columns:1fr;gap:12px;}
+  .record-layout,.profile-grid,.two-col{grid-template-columns:1fr;}
+  .record-summary{position:static;}
+  .manage-inline{flex-wrap:wrap;}.manage-inline>*{max-width:100%;}
+  .invite-box input{font-size:12px;}
+  .notification-item{min-width:0;}
+  .bottom-nav{background:var(--color-surface);}
+  .brand-symbol{width:36px;height:36px;}
+  .refresh-button{width:30px;}
+  .app-footer{font-size:10px;}
+}
+@media (max-width:420px){
+ .overview-groups{grid-template-columns:1fr;}
+ .overview-group-card,.overview-create-card{min-height:118px;}
+ .overview-group-meta{font-size:11px;}
+ .page-heading h1{font-size:34px;}
+ .page-heading .heading-cta{font-size:0!important;gap:0!important;}
+ .overview-bottom .panel{padding:15px;}
+ .overview-totals strong{font-size:19px;}
+ .tab button{padding:10px;}
+}
+/* Whole-row group selection: one accessible button, management controls on details page. */
+.group-card-button{width:100%;text-align:left;color:var(--color-text);margin:10px 0;padding:14px 15px;}
+.group-card-button .group-card-content{flex:1;}
+.group-card-arrow{display:flex;color:var(--color-accent);}
+.group-card-button:hover{background:var(--color-surface-raised);border-color:var(--color-accent);}
+.group-card-button:focus-visible{outline:3px solid var(--color-focus);outline-offset:3px;}
+.group-list-layout{grid-template-columns:1.1fr 1fr;}
+.install-shortcut{min-height:34px;padding:6px 10px;font-size:11px;}
+@media(max-width:980px){.group-list-layout{grid-template-columns:1fr;}}
+@media(max-width:740px){.install-shortcut{display:none;}}
+.group-stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:11px;margin:4px 0 27px;}
+.group-stats>div{background:var(--color-bg);padding:14px;border-radius:10px;min-width:0;}
+.group-stats span{font-size:11px;color:var(--color-muted);display:block;margin-bottom:8px;}
+.group-stats strong{font-size:24px;letter-spacing:-.04em;overflow-wrap:anywhere;}
+@media(max-width:740px){.group-stats{grid-template-columns:1fr 1fr;}.group-stats>div:first-child{grid-column:1/-1;}}
