@@ -10,3 +10,4 @@ coverage/
 *.dump
 *.sql.gz
 *.age
+supabase/.temp

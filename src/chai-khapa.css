@@ -1,0 +1,127 @@
+@import url("/theme.css");
+
+/*
+ * Chai Khapa landing-page composition.
+ * All palette values come from /theme.css.
+ * The application intentionally uses no external font dependency.
+ */
+
+:root {
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-synthesis: none;
+  -webkit-font-smoothing: antialiased;
+}
+*, *::before, *::after { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; min-width: 320px; background: var(--color-bg); color: var(--color-text); }
+button { font: inherit; cursor: pointer; }
+a { color: inherit; text-decoration: none; }
+a:hover { text-decoration: underline; text-underline-offset: 5px; }
+a:focus-visible, button:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 4px; }
+
+.skip-link {
+  position: absolute; top: -300px; left: 12px; z-index: 9;
+  background: var(--color-accent); color: var(--color-on-accent);
+  padding: 8px 15px;
+}
+.skip-link:focus { top: 12px; }
+
+.app-shell { min-height: 100vh; display: flex; flex-direction: column; }
+.topbar {
+  border-bottom: 1px solid var(--color-border-soft);
+  display: flex; align-items: center; justify-content: space-between; gap: 20px;
+  min-height: 84px;
+  padding: 14px max(6vw, calc((100vw - 1100px) / 2));
+}
+.brand { display: flex; align-items: center; gap: 13px; font-size: 12px; font-weight: 800; letter-spacing: .2em; }
+.brand:hover { text-decoration: none; }
+.monogram {
+  padding: 9px 7px 7px;
+  border: 1px solid var(--color-accent);
+  color: var(--color-accent-hover);
+  font-size: 17px; line-height: 1; letter-spacing: -.05em;
+}
+.monogram span { color: var(--color-text); }
+.nav { display: flex; align-items: center; gap: 28px; font-size: 12px; color: var(--color-muted); }
+.nav a:hover, .footer a:hover { color: var(--color-accent-hover); }
+
+.main { max-width: 1100px; width: 100%; margin: 0 auto; padding: 72px 24px 100px; flex: 1; min-height: 65vh; }
+.hero { max-width: 860px; }
+.eyebrow { color: var(--color-accent-hover); font-size: 11px; font-weight: 750; letter-spacing: .19em; }
+.eyebrow span { margin: 0 7px; color: var(--color-muted-quiet); }
+h1 {
+  font: 400 clamp(62px, 8.5vw, 120px) / 1.01 Georgia, "Times New Roman", serif;
+  letter-spacing: -.05em; margin: 22px 0 25px;
+}
+h1 em { font-weight: 400; color: var(--color-accent-hover); font-style: italic; }
+.lead { color: var(--color-muted); font-size: clamp(16px, 2.2vw, 19px); line-height: 1.75; max-width: 590px; margin: 0; }
+.hero-rule {
+  border-top: 1px solid var(--color-border-soft);
+  max-width: 860px; display: flex; justify-content: space-between; align-items: center;
+  margin: 56px 0 38px; padding: 17px 0 0;
+  font-size: 10px; letter-spacing: .15em; color: var(--color-muted-quiet);
+}
+.decorative-star { font: 22px Georgia, serif; color: var(--color-accent-hover); }
+
+.sign-panel { background: var(--color-surface); border: 1px solid var(--color-border-soft); padding: 30px 34px; max-width: 680px; }
+.sign-heading { display: flex; justify-content: space-between; gap: 16px; }
+.label, .available { color: var(--color-muted-quiet); font-size: 10px; letter-spacing: .16em; font-weight: 700; }
+.available { color: var(--color-success); }
+.sign-title { font: 400 31px / 1.2 Georgia, serif; letter-spacing: -.02em; margin: 22px 0 12px; }
+.muted { font-size: 14px; line-height: 1.7; color: var(--color-muted); max-width: 520px; margin: 0 0 22px; }
+.muted strong { color: var(--color-text); font-weight: 650; }
+.primary, .secondary {
+  border: 1px solid var(--color-accent);
+  background: var(--color-accent); color: var(--color-on-accent);
+  font-size: 13px; font-weight: 750; min-height: 48px;
+  padding: 12px 18px; display: inline-flex; align-items: center;
+  gap: 28px; justify-content: space-between;
+}
+.primary:hover { background: var(--color-accent-hover); border-color: var(--color-accent-hover); text-decoration: none; }
+.secondary { background: transparent; color: var(--color-accent-hover); }
+.secondary:hover { background: var(--color-surface-raised); }
+.notice {
+  font-size: 13px; color: var(--color-warning);
+  border: 1px solid var(--color-border);
+  padding: 14px; background: var(--color-surface-raised);
+}
+.error { font-size: 13px; color: var(--color-danger); }
+.policy-caption { margin: 25px 0 0; font-size: 11px; color: var(--color-muted-quiet); line-height: 1.8; }
+.policy-caption a { color: var(--color-text); text-decoration: underline; text-underline-offset: 3px; }
+
+.how { padding-top: 100px; }
+.steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; margin: 27px 0 24px; }
+.steps > div { border-top: 1px solid var(--color-border-soft); padding-top: 18px; }
+.steps span { font-size: 12px; color: var(--color-accent-hover); }
+.steps h3 { font: 400 25px Georgia, serif; margin: 21px 0 10px; }
+.steps p { color: var(--color-muted); font-size: 14px; line-height: 1.7; max-width: 270px; margin: 0; }
+.feature-note { font-size: 12px; color: var(--color-muted-quiet); margin-top: 32px; }
+
+.footer {
+  display: flex; justify-content: space-between; gap: 22px; flex-wrap: wrap;
+  border-top: 1px solid var(--color-border-soft);
+  padding: 25px max(6vw, calc((100vw - 1100px) / 2));
+  font-size: 10px; letter-spacing: .09em; color: var(--color-muted-quiet);
+}
+.footer a { margin-right: 18px; letter-spacing: 0; font-size: 12px; }
+.footer div > span { color: var(--color-accent-hover); }
+
+@media (max-width: 650px) {
+  .topbar { padding: 14px 20px; }
+  .nav { gap: 12px; }
+  .nav a:first-child { display: none; }
+  .main { padding: 60px 20px 68px; }
+  h1 { font-size: clamp(53px, 12vw, 78px); }
+  .hero-rule { margin-top: 45px; }
+  .sign-panel { padding: 25px 22px; }
+  .sign-heading { flex-wrap: wrap; }
+  .steps { grid-template-columns: 1fr; gap: 23px; }
+  .how { padding-top: 70px; }
+  .footer { padding: 25px 20px; flex-direction: column; }
+}
+@media (max-width: 450px) {
+  .brand { font-size: 10px; letter-spacing: .11em; }
+  .topbar { gap: 8px; }
+  .nav { font-size: 11px; }
+  .nav a { white-space: nowrap; }
+}

@@ -1,0 +1,37 @@
+/*
+ * CHAI KHAPA — COLOR SYSTEM
+ * Palette: Smoky Slate (02)
+ *
+ * Change colors here to reskin the whole application.
+ * Components must use semantic variables (never literal hex colors).
+ * Future themes: add a [data-theme="new-name"] block and set
+ * document.documentElement.dataset.theme = 'new-name'.
+ */
+
+:root,
+:root[data-theme="smoky-slate"] {
+  color-scheme: dark;
+
+  /* Foundations */
+  --color-bg: #313E4B;
+  --color-surface: #41505F;
+  --color-surface-raised: #4B5C6A;
+
+  /* Content */
+  --color-text: #F4F5F3;
+  --color-muted: #CBD3DA;
+  --color-muted-quiet: #B8C4CE;
+
+  /* Lines and interactive states */
+  --color-border: #6A7A88;
+  --color-border-soft: #596A78;
+  --color-accent: #DC9D75;
+  --color-accent-hover: #F0B58F;
+  --color-on-accent: #25313A;
+  --color-focus: #F0B58F;
+
+  /* Semantic status colors */
+  --color-success: #C3E0CF;
+  --color-warning: #FFE0B0;
+  --color-danger: #FFC4BA;
+}
