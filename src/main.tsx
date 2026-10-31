@@ -4,6 +4,7 @@ import App from './App'
 import './chai-khapa.css'
 import './phase35.css'
 import './phase36.css'
+import './phase37.css'
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
