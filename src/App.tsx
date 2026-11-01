@@ -8,6 +8,7 @@ import { singleGroupEntryDestination } from './lib/entryRouting'
 import { whatsappInviteHref } from './lib/sharing'
 import { useInstallApp } from './lib/install'
 import { ChaiSelect } from './components/ChaiSelect'
+import UnifiedSettlements from './UnifiedSettlements'
 import { describeAppError, diagnosticDetails } from './lib/errors'
 
 type View = 'landing' | 'dashboard' | 'groups' | 'group' | 'record' | 'activity' | 'dues' | 'notifications' | 'profile' | 'join'
@@ -22,9 +23,9 @@ type GroupOverview = { id: string; name: string; net: number; memberCount: numbe
 type Notification = { id: string; group_id: string | null; type: string; title: string; body: string; target_type: string | null; target_id: string | null; read_at: string | null; created_at: string }
 type SettlementPeriod = { id: string; group_id: string; period_month: string; start_at: string; end_at: string; closed_at: string }
 type PendingSettlementMonth = { group_id: string; group_name: string; period_month: string; session_count: number; total_paisa: number; can_close: boolean }
-type SettlementTransfer = { id: string; period_id: string | null; source: 'month_end' | 'early'; origin_month: string | null; group_id: string; debtor_user_id: string; creditor_user_id: string; amount_paisa: number; status: 'unpaid' | 'awaiting_confirmation' | 'confirmed'; confirmed_at: string | null }
+type SettlementTransfer = { id: string; period_id: string | null; source: 'month_end' | 'early'; origin_month: string | null; group_id: string; debtor_user_id: string; creditor_user_id: string; amount_paisa: number; applied_paisa: number; status: 'unpaid' | 'awaiting_confirmation' | 'confirmed'; confirmed_at: string | null }
 type OpenSuggestion = { group_id: string; debtor_user_id: string; creditor_user_id: string; amount_paisa: number }
-type PaymentClaim = { id: string; transfer_id: string; actual_paid_paisa: number; rounding_adjustment_paisa: number; claimed_by_user_id: string; status: 'pending' | 'confirmed' | 'rejected'; created_at: string }
+type PaymentClaim = { id: string; transfer_id: string; applied_paisa: number; actual_paid_paisa: number; rounding_adjustment_paisa: number; claimed_by_user_id: string; status: 'pending' | 'confirmed' | 'rejected'; created_at: string }
 
 
 type IconName = 'grid' | 'users' | 'plus' | 'clock' | 'bell' | 'settings' | 'chevron' | 'arrow' | 'link' | 'check' | 'logout' | 'copy' | 'receipt' | 'cup' | 'menu' | 'close' | 'refresh'
@@ -281,7 +282,7 @@ export default function App() {
       const ids = groups.map(g => g.id)
       const [p, t, open, missed] = await Promise.all([
         supabase.from('settlement_periods').select('id,group_id,period_month,start_at,end_at,closed_at').in('group_id', ids).order('period_month', { ascending: false }),
-        supabase.from('settlement_transfers').select('id,period_id,source,origin_month,group_id,debtor_user_id,creditor_user_id,amount_paisa,status,confirmed_at').in('group_id', ids),
+        supabase.from('settlement_transfers').select('id,period_id,source,origin_month,group_id,debtor_user_id,creditor_user_id,amount_paisa,applied_paisa,status,confirmed_at').in('group_id', ids),
         Promise.all(ids.map(async group => {
           const { data, error: openError } = await supabase!.rpc('get_open_month_suggestions', { p_group_id: group })
           if (openError) throw openError
@@ -295,7 +296,7 @@ export default function App() {
       const transferRows = (t.data ?? []) as SettlementTransfer[]
       const relevantIds = transferRows.filter(row => row.debtor_user_id === user.id || row.creditor_user_id === user.id).map(row => row.id)
       const claims = relevantIds.length ? await supabase.from('settlement_payment_claims')
-        .select('id,transfer_id,actual_paid_paisa,rounding_adjustment_paisa,claimed_by_user_id,status,created_at')
+        .select('id,transfer_id,applied_paisa,actual_paid_paisa,rounding_adjustment_paisa,claimed_by_user_id,status,created_at')
         .in('transfer_id', relevantIds).order('created_at', { ascending: false }) : { data: [] as PaymentClaim[], error: null }
       if (claims.error) throw claims.error
       if (req !== settlementRequestRef.current) return
@@ -419,12 +420,15 @@ export default function App() {
     await Promise.all([refreshSettlements(), refreshOverview(), refreshNotifications()])
     setToast('Payment claims sent. Recipients must confirm before balances clear.')
   }
-  async function claimTransfer(transferId: string, paidPaisa: number) {
-    if (!supabase) return
-    const { error: rpcError } = await supabase.rpc('mark_transfer_paid', { p_transfer_id: transferId, p_paid_paisa: paidPaisa })
+  async function claimMonthPayments(ids: string[], amounts: number[], requestId: string, roundUp: boolean) {
+    if (!supabase) throw new Error('Supabase is unavailable')
+    const { error: rpcError } = await supabase.rpc('claim_month_payments', {
+      p_transfer_ids: ids, p_amounts_paisa: amounts,
+      p_request_id: requestId, p_round_up: roundUp,
+    })
     if (rpcError) throw rpcError
     await Promise.all([refreshSettlements(), refreshOverview(), refreshNotifications()])
-    setToast('Marked as paid. Awaiting the recipient’s confirmation.')
+    setToast('Payment claims sent. Recipients must confirm each payment.')
   }
   async function decideClaim(claimId: string, received: boolean) {
     if (!supabase) return
@@ -481,7 +485,7 @@ export default function App() {
         </>}
         {route.view === 'groups' && <GroupsPage groups={groups} groupId={groupId} userId={user.id} onChoose={(id) => { setGroupId(id); navigate('group', `/app/groups/${id}`) }} onGroupCreated={async (id) => { await refreshWorkspace(); setGroupId(id); navigate('group', `/app/groups/${id}`); setToast('Group created. Invite your colleagues!') }} />}
         {route.view === 'group' && <GroupDetailsPage key={activeGroup?.id ?? 'empty'} group={activeGroup?.id === route.token ? activeGroup : null} members={members} balances={balances} expenses={expenses} userId={user.id} loading={groupLoading} onBack={() => navigate('dashboard')} onRecord={() => navigate('record')} onActivity={() => navigate('activity')} onInviteSuccess={setToast} onChanged={async () => { await refreshWorkspace(); await refreshGroup(); await refreshOverview() }} onMembershipChanged={async () => { await refreshWorkspace(); navigate('dashboard') }} />}
-        {route.view === 'dues' && <DuesPage groups={groups} overviews={overview} userId={user.id} periods={settlementPeriods} transfers={settlementTransfers} claims={paymentClaims} openSuggestions={openSuggestions} loading={overviewLoading || settlementLoading} pendingMonths={pendingSettlementMonths} onCloseMonth={closeMonth} onEarlyClaim={claimEarly} onClaimPaid={claimTransfer} onConfirm={decideClaim} />}
+        {route.view === 'dues' && <UnifiedSettlements groups={groups} overviews={overview} userId={user.id} periods={settlementPeriods} transfers={settlementTransfers} claims={paymentClaims} openSuggestions={openSuggestions} loading={overviewLoading || settlementLoading} pendingMonths={pendingSettlementMonths} onCloseMonth={closeMonth} onEarlyClaim={claimEarly} onBatchClaim={claimMonthPayments} onConfirm={decideClaim} />}
         {route.view === 'record' && <RecordPage group={activeGroup} members={members} expenses={expenses} userId={user.id} onBack={() => navigate('dashboard')} onSaved={async () => { const sync = await Promise.allSettled([refreshGroup(), refreshOverview(), refreshNotifications()]); const failed = sync.some(result => result.status === 'rejected'); if (failed) console.warn('[Chai Khapa] Session was saved; a dashboard refresh failed.'); setToast(failed ? 'Session saved. Some screens may need a refresh.' : 'Session recorded. Everyone’s share has been saved.'); navigate('group', `/app/groups/${groupId}`) }} />}
         {route.view === 'activity' && <ActivityPage group={activeGroup} expenses={expenses} members={members} loading={groupLoading} onRecord={() => navigate('record')} />}
         {route.view === 'notifications' && <NotificationsPage notifications={notifications} unreadCount={unreadCount} hasMore={hasMoreNotifications} onMore={() => setNotificationLimit((x) => x + 30)} onMarkRead={markRead} onMarkAll={markAllRead} onGo={(n) => { if (n.group_id && groups.some((g) => g.id === n.group_id)) setGroupId(n.group_id); navigate(n.target_type === 'expense' ? 'activity' : n.target_type === 'settlement_transfer' ? 'dues' : 'groups') }} />}
@@ -605,170 +609,6 @@ function GroupDetailsPage({ group, members, balances, expenses, userId, loading,
       </aside>
     </div>
   </>
-}
-
-function DuesPage({ groups, overviews, userId, periods, pendingMonths, transfers, claims, openSuggestions, loading, onCloseMonth, onEarlyClaim, onClaimPaid, onConfirm }: {
-  groups: Group[]; overviews: GroupOverview[]; userId: string; periods: SettlementPeriod[]; pendingMonths: PendingSettlementMonth[];
-  transfers: SettlementTransfer[]; claims: PaymentClaim[]; openSuggestions: OpenSuggestion[]; loading: boolean;
-  onEarlyClaim: (groupId: string, rows: { recipient: string; amountPaisa: number }[], requestId: string, roundUp: boolean) => Promise<void>;
-  onCloseMonth: (groupId: string, month: string) => Promise<void>;
-  onClaimPaid: (transferId: string, amount: number) => Promise<void>;
-  onConfirm: (claimId: string, received: boolean) => Promise<void>
-}) {
-  const [busy, setBusy] = useState<string | null>(null)
-  const [actionError, setActionError] = useState('')
-  const [payChoice, setPayChoice] = useState<Record<string, 'exact' | 'round'>>({})
-  const [closeConfirm, setCloseConfirm] = useState<string | null>(null)
-  const [transferConfirm, setTransferConfirm] = useState<string | null>(null)
-  const [filter, setFilter] = useState<'to_pay' | 'to_receive' | 'all'>('all')
-  function getName(groupId: string, id: string) {
-    return displayName(overviews.find(g => g.id === groupId)?.balances.find(b => b.user_id === id))
-  }
-  async function run(key: string, action: () => Promise<void>) {
-    setActionError(''); setBusy(key)
-    try { await action() } catch (reason) { setActionError(messageOf(reason)) } finally { setBusy(null) }
-  }
-  const currentSuggestions = openSuggestions.filter(s => s.debtor_user_id === userId)
-  const relevant = transfers.filter(t => t.debtor_user_id === userId || t.creditor_user_id === userId)
-  const pending = relevant.filter(t => t.status !== 'confirmed')
-  const total = pending.filter(t => t.debtor_user_id === userId).reduce((sum, t) => sum + Number(t.amount_paisa), 0)
-  return <>
-    <div className="page-heading short"><div><p className="micro accent">SETTLE WITH CONFIDENCE</p><h1>Monthly settlements<span className="punctuation">.</span></h1><p>Track what you owe, confirm money received, and keep every month accountable.</p></div></div>
-    <div className="settlement-summary"><div><p className="micro">FINALIZED TRANSFERS DUE · PENDING INCLUDED</p><strong>{money(total)}</strong><p>Excludes unclosed months listed below. Only confirmed receipts clear a settlement.</p></div><div><p className="micro">HOW IT WORKS</p><p>Completed months close automatically after midnight Pakistan time when the scheduler is active. You can also settle current-month balances early. Payments happen outside Chai Khapa and require recipient confirmation.</p></div></div>
-    {actionError && <div role="alert" className="alert error-alert">{actionError}</div>}
-    <EarlySettlementChoices groups={groups} suggestions={currentSuggestions}
-      getName={getName} onClaim={onEarlyClaim} loading={loading} />
-    <EarlySettlementHistory transfers={relevant.filter(t => t.source === 'early')}
-      claims={claims} me={userId} getName={getName} onMarkPaid={onClaimPaid}
-      onConfirm={onConfirm} loading={loading}/>
-    {!loading && pendingMonths.length > 0 && <section className="panel settlement-recovery" aria-labelledby="recovery-title">
-      <div className="recovery-head">
-        <div><p className="micro accent">SETTLEMENT RECOVERY</p><h2 id="recovery-title">Unclosed months need attention</h2>
-          <p className="muted-small">These months have recorded sessions but no finalized settlement. The automatic scheduler should eventually catch up; a group owner can resolve them here now.</p></div>
-        <span className="recovery-count">{pendingMonths.length} pending</span>
-      </div>
-      <div className="recovery-list">{pendingMonths.map(month => {
-        const key = `${month.group_id}:${month.period_month}`
-        const monthLabel = new Date(`${month.period_month}T12:00:00Z`).toLocaleDateString('en-PK', { month: 'long', year: 'numeric', timeZone: 'UTC' })
-        return <div className="recovery-row" key={key}>
-          <div className="recovery-description"><strong>{monthLabel} · {month.group_name}</strong>
-            <span>{month.session_count} {Number(month.session_count) === 1 ? 'session' : 'sessions'} · {money(Number(month.total_paisa))} in recorded bills</span>
-            {!month.can_close && <small>Only this group's owner can finalize manually. The scheduler can also close it on its next successful run.</small>}
-          </div>
-          {month.can_close && (closeConfirm === key ?
-            <div className="recovery-confirm" role="group" aria-label={`Confirm closing ${monthLabel}`}>
-              <p>Finalize {monthLabel}? This creates payment instructions and prevents new backdated sessions in that month. It does <strong>not</strong> mark any payment as received.</p>
-              <div className="recovery-confirm-buttons"><button type="button" className="button button-outline" onClick={() => setCloseConfirm(null)} disabled={busy !== null}>Cancel</button>
-                <button type="button" className="button button-copper" disabled={busy !== null} onClick={() => void run(`recover:${key}`, async () => { await onCloseMonth(month.group_id, month.period_month); setCloseConfirm(null) })}>{busy === `recover:${key}` ? <Spinner/> : <Icon name="check" size={16}/>} Finalize month</button></div>
-            </div> :
-            <button type="button" className="button button-outline" disabled={busy !== null} onClick={() => setCloseConfirm(key)}>Review & close <Icon name="arrow" size={15}/></button>)}
-        </div>
-      })}</div>
-    </section>}
-
-    <section className="panel settlement-ledger"><SectionHead label="PERIOD LEDGER" title="Your settlement instructions" aside={<span className="people-count">{pending.length} pending</span>}/><div className="settlement-filters" role="group" aria-label="Filter settlement instructions"><button className={filter === 'all' ? 'active' : ''} aria-pressed={filter === 'all'} onClick={() => setFilter('all')}>All</button><button className={filter === 'to_pay' ? 'active' : ''} aria-pressed={filter === 'to_pay'} onClick={() => setFilter('to_pay')}>To pay</button><button className={filter === 'to_receive' ? 'active' : ''} aria-pressed={filter === 'to_receive'} onClick={() => setFilter('to_receive')}>To receive</button></div>
-      {loading ? <LoadingPanel/> : !periods.length ? <Empty icon="receipt" title="No closed months yet" detail={pendingMonths.length ? "Unclosed months are listed above. Once a month is finalized, its payment instructions appear here." : "Nothing has been finalized yet. Completed months close through the scheduler; you can also settle current-month balances above."}/> : periods.map(p => {
-        const rows = relevant.filter(t => t.period_id === p.id && (filter === 'all' || (filter === 'to_pay' ? t.debtor_user_id === userId : t.creditor_user_id === userId)))
-        const groupName = groups.find(g => g.id === p.group_id)?.name ?? 'Group'
-        if (!rows.length) return null
-        return <div className="settlement-period" key={p.id}><div className="settlement-period-head"><h3>{new Date(`${p.period_month}T12:00:00Z`).toLocaleDateString('en-PK',{month:'long',year:'numeric',timeZone:'UTC'})}</h3><span>{groupName}</span></div>{rows.map(t => {
-          const debtor = t.debtor_user_id === userId
-          const otherId = debtor ? t.creditor_user_id : t.debtor_user_id
-          const due = Number(t.amount_paisa)
-          const rounded = Math.ceil(due / 100) * 100
-          const selectedPaid = payChoice[t.id] === 'exact' ? due : rounded
-          const claim = claims.find(c => c.transfer_id === t.id && c.status === 'pending')
-          return <div className="settlement-transfer" key={t.id}><div className="settlement-transfer-info"><span className="micro">{debtor ? 'PAY TO' : 'RECEIVE FROM'}</span><h4>{getName(t.group_id, otherId)}</h4><strong>{money(due)}</strong><span className={`settlement-status status-${t.status}`}>{t.status === 'confirmed' ? 'Confirmed & settled' : t.status === 'awaiting_confirmation' ? 'Awaiting receipt confirmation' : 'Payment outstanding'}</span></div>
-          {debtor && t.status === 'unpaid' && <div className="settlement-action"><label className="field-label" htmlFor={`pay-method-${t.id}`}>AMOUNT YOU ACTUALLY PAID</label><ChaiSelect id={`pay-method-${t.id}`} value={payChoice[t.id] ?? 'round'} onChange={choice => setPayChoice(v => ({...v,[t.id]: choice as 'exact'|'round'}))} placeholder="Choose payment amount" options={[{value:'round',label:`Rounded transfer · ${money(rounded)}`},{value:'exact',label:`Exact amount · ${money(due)}`}]} />{rounded > due && <p className="muted-small">Rounded amount includes a voluntary {money(rounded-due)} extra. Only the exact debt is cleared.</p>}<button className="button button-copper" disabled={busy !== null} onClick={() => setTransferConfirm(t.id)}>{busy===t.id?<Spinner/>:<Icon name="check" size={16}/>} Mark as paid</button>{transferConfirm === t.id && <div className="action-confirm" role="group" aria-label="Confirm external payment"><p>Have you already paid <strong>{money(selectedPaid)}</strong> to <strong>{getName(t.group_id,otherId)}</strong> outside Chai Khapa?</p><div className="action-confirm-actions"><button className="button button-outline" onClick={() => setTransferConfirm(null)}>Cancel</button><button className="button button-copper" disabled={busy !== null} onClick={() => void run(t.id, async () => { await onClaimPaid(t.id, selectedPaid); setTransferConfirm(null) })}>Yes, request confirmation</button></div></div>}</div>}
-          {!debtor && t.status === 'awaiting_confirmation' && claim && <div className="settlement-action"><p className="muted-small">They reported paying {money(claim.actual_paid_paisa)}. Did you receive it?</p><div className="settlement-buttons"><button className="button button-copper" disabled={busy !== null} onClick={() => void run(claim.id,()=>onConfirm(claim.id,true))}>Confirm received</button><button className="button button-outline" disabled={busy !== null} onClick={() => void run(claim.id,()=>onConfirm(claim.id,false))}>Not received</button></div></div>}
-          </div>
-        })}</div>
-      })}
-      {!loading && periods.length>0 && relevant.filter(t => filter === 'all' || (filter === 'to_pay' ? t.debtor_user_id === userId : t.creditor_user_id === userId)).length===0 && <Empty icon="check" title="No transfers in this view" detail="Choose another filter or check back after a month closes."/>}
-    </section>
-
-  </>
-}
-
-/** Open-month claims: selection is per group so the backend can validate atomically. */
-function EarlySettlementChoices({ groups, suggestions, getName, onClaim, loading }: {
-  groups: Group[]; suggestions: OpenSuggestion[]; getName: (groupId:string,id:string)=>string;
-  onClaim: (groupId:string,rows:{recipient:string;amountPaisa:number}[], requestId:string, roundUp:boolean)=>Promise<void>;
-  loading: boolean;
-}) {
-  const [selected,setSelected]=useState<Record<string,boolean>>({})
-  const [roundUp,setRoundUp]=useState(true)
-  const [confirmGroup,setConfirmGroup]=useState<string|null>(null)
-  const [busy,setBusy]=useState(false)
-  const [error,setError]=useState('')
-  const requestId=useRef(crypto.randomUUID())
-  const changeSelection=(key:string,checked:boolean)=>{
-    requestId.current=crypto.randomUUID(); setConfirmGroup(null)
-    setSelected(s=>({...s,[key]:checked}))
-  }
-  const available=groups.map(g=>({group:g, rows:suggestions.filter(s=>s.group_id===g.id)}))
-    .filter(x=>x.rows.length>0)
-  return <section className="panel ck-early-panel">
-    <SectionHead label="PAY ANYTIME" title="Settle this month's balance" />
-    <p className="muted-small">Choose the people you've already paid outside Chai Khapa. Claims remain pending until each recipient confirms. These amounts are for the current month only; older obligations are listed above.</p>
-    {error && <p className="form-error" role="alert">{error}</p>}
-    {loading ? <LoadingPanel/> : !available.length ? <Empty icon="check" title="Nothing new to settle" detail="Your current month has no new suggested transfers. Existing outstanding transfers are listed above."/> : available.map(({group,rows})=>{
-      const chosen=rows.filter(r=>selected[`${group.id}:${r.creditor_user_id}`])
-      const exact=chosen.reduce((sum,r)=>sum+Number(r.amount_paisa),0)
-      const rounded=chosen.reduce((sum,r)=>sum+Math.ceil(Number(r.amount_paisa)/100)*100,0)
-      return <div className="ck-early-group" key={group.id}>
-        <h3>{group.name}</h3>
-        <div className="ck-early-list">{rows.map(r=>{
-          const key=`${group.id}:${r.creditor_user_id}`
-          return <label className="ck-early-option" key={key}>
-            <input type="checkbox" checked={Boolean(selected[key])} disabled={busy}
-              onChange={e=>changeSelection(key,e.target.checked)} />
-            <span><strong>{getName(group.id,r.creditor_user_id)}</strong><small>Current suggested transfer</small></span>
-            <b>{money(r.amount_paisa)}</b>
-          </label>
-        })}</div>
-        {chosen.length>0 && <div className="ck-early-bottom">
-          <label className="ck-early-round"><input type="checkbox" checked={roundUp} disabled={busy} onChange={e=>{setRoundUp(e.target.checked);requestId.current=crypto.randomUUID()}}/> Round each payment up to whole rupees</label>
-          <p><strong>{chosen.length} selected · {money(roundUp?rounded:exact)}</strong>{roundUp&&rounded>exact&&<small> Includes voluntary {money(rounded-exact)} rounding; exact debt stays unchanged.</small>}</p>
-          {confirmGroup===group.id ? <div className="action-confirm" role="group" aria-label="Confirm payments made">
-            <p>Have you already paid the selected colleagues <strong>{money(roundUp?rounded:exact)}</strong> outside Chai Khapa? Reporting payment does not immediately settle the debt.</p>
-            <div className="action-confirm-actions"><button className="button button-outline" type="button" disabled={busy} onClick={()=>setConfirmGroup(null)}>Cancel</button>
-              <button className="button button-copper" type="button" disabled={busy} onClick={async()=>{
-                setBusy(true);setError('')
-                try { await onClaim(group.id,chosen.map(r=>({recipient:r.creditor_user_id,amountPaisa:r.amount_paisa})),requestId.current,roundUp); setSelected({});setConfirmGroup(null);requestId.current=crypto.randomUUID() }
-                catch(e){setError(messageOf(e))}finally{setBusy(false)}
-              }}>{busy?'Saving…':'Yes, request confirmation'}</button></div>
-          </div> : <button className="button button-copper" type="button" disabled={busy} onClick={()=>setConfirmGroup(group.id)}>Mark selected as paid</button>}
-        </div>}
-      </div>
-    })}
-  </section>
-}
-
-/** Early claims are real obligations and stay visible even when rejected. */
-function EarlySettlementHistory({ transfers, claims, me, getName, onMarkPaid, onConfirm, loading }: {
-  transfers: SettlementTransfer[]; claims: PaymentClaim[]; me:string;
-  getName:(groupId:string,id:string)=>string;
-  onMarkPaid:(transferId:string,amount:number)=>Promise<void>;
-  onConfirm:(claimId:string,received:boolean)=>Promise<void>;loading:boolean;
-}) {
-  const [busy,setBusy]=useState<string|null>(null), [error,setError]=useState('')
-  async function run(key:string, cb:()=>Promise<void>){setBusy(key);setError('');try{await cb()}catch(e){setError(messageOf(e))}finally{setBusy(null)}}
-  if(!transfers.length && !loading) return null
-  return <section className="panel ck-early-history"><SectionHead label="EARLY SETTLEMENT LEDGER" title="Payments before month-end"/>
-    <p className="muted-small">Pending claims still count as outstanding until the recipient confirms. Rejected claims can be reported again.</p>
-    {error&&<p className="form-error" role="alert">{error}</p>}
-    {transfers.map(t=>{
-      const debtor=t.debtor_user_id===me
-      const claim=claims.find(c=>c.transfer_id===t.id&&c.status==='pending')
-      return <div className="ck-early-record" key={t.id}>
-        <div><span className="micro">{debtor?'PAY TO':'RECEIVE FROM'}</span><h3>{getName(t.group_id,debtor?t.creditor_user_id:t.debtor_user_id)}</h3><small>{t.origin_month?.slice(0,7)} · {t.status==='confirmed'?'Confirmed':t.status==='awaiting_confirmation'?'Awaiting confirmation':'Outstanding'}</small></div>
-        <strong>{money(t.amount_paisa)}</strong>
-        {debtor && t.status==='unpaid' && <button className="button button-outline" disabled={busy!==null} onClick={()=>void run(t.id,()=>onMarkPaid(t.id,Math.ceil(Number(t.amount_paisa)/100)*100))}>Report payment again</button>}
-        {!debtor && t.status==='awaiting_confirmation' && claim && <div className="ck-receive-actions"><span>Claimed {money(claim.actual_paid_paisa)}</span><button className="button button-copper" disabled={busy!==null} onClick={()=>void run(t.id,()=>onConfirm(claim.id,true))}>Confirm received</button><button className="button button-outline" disabled={busy!==null} onClick={()=>void run(t.id,()=>onConfirm(claim.id,false))}>Not received</button></div>}
-      </div>
-    })}
-  </section>
 }
 
 function RecordPage({ group, members, expenses, userId, onBack, onSaved }: {
