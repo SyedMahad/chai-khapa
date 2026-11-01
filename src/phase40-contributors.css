@@ -1,0 +1,18 @@
+/* Multi-contributor session input — semantic Smoky Slate tokens only */
+.ck-contrib-list{display:grid;gap:10px;margin-top:18px}
+.ck-contrib-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(132px,190px) auto;gap:14px;align-items:center;background:var(--color-bg);border:1px solid var(--color-border-soft);border-radius:12px;padding:13px 15px;min-width:0;transition:border-color .18s,background .18s}
+.ck-contrib-row:hover{border-color:var(--color-border);background:var(--color-surface-raised)}
+.ck-contrib-person{display:flex;align-items:center;gap:12px;min-width:0}
+.ck-contrib-person>div{display:grid;gap:3px;min-width:0}.ck-contrib-person strong{font-size:13px;overflow-wrap:anywhere}
+.ck-contrib-person small{font-size:11px;color:var(--color-muted)}
+.ck-contrib-amount{text-align:right;min-width:0}.ck-contrib-amount strong{color:var(--color-text);font-size:14px}
+.ck-contrib-amount label{font-size:10px;color:var(--color-muted);display:block;margin:0 0 6px}
+.ck-contrib-amount input{min-height:43px!important;text-align:right;padding:10px 11px!important}
+.ck-contrib-remove{background:transparent;color:var(--color-muted);width:30px;height:36px;border-radius:8px;display:grid;place-items:center}
+.ck-contrib-remove:hover{color:var(--color-danger);background:var(--color-surface)}
+.ck-contrib-add-btn{margin-top:14px}.ck-contrib-add{margin-top:14px;background:var(--color-surface);border-radius:11px;padding:14px;border:1px solid var(--color-border-soft)}
+.ck-contrib-add .field-label{margin:0 0 7px}.ck-contrib-add-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:8px;align-items:center}
+.ck-contrib-total{margin-top:13px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px;border:1px solid var(--color-border);border-radius:9px;padding:13px 14px;font-size:12px}
+.ck-contrib-total.balanced{color:var(--color-success)}.ck-contrib-total.unbalanced{color:var(--color-accent-hover)}
+.ck-breakdown-title{margin-top:23px!important}
+@media(max-width:540px){.ck-contrib-row{grid-template-columns:minmax(0,1fr) auto;gap:8px;padding:12px}.ck-contrib-person{grid-column:1/2}.ck-contrib-amount{grid-column:1/3;text-align:left}.ck-contrib-amount input{text-align:left}.ck-contrib-remove{grid-column:2;grid-row:1}.ck-contrib-add-row{grid-template-columns:1fr 1fr}.ck-contrib-add-row select{grid-column:1/-1}.ck-contrib-add-row button{width:100%;white-space:normal}}

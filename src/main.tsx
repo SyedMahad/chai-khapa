@@ -5,6 +5,10 @@ import './chai-khapa.css'
 import './phase35.css'
 import './phase36.css'
 import './phase37.css'
+import './phase38-finance.css'
+import './phase39-recovery.css'
+import './phase40-contributors.css'
+import './chai-select.css'
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

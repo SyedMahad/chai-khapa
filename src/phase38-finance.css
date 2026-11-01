@@ -1,0 +1,26 @@
+/* Chai Khapa – Phase 3.7 early-payment UI. Uses existing Smoky Slate tokens. */
+.ck-early-panel,.ck-early-history{margin-top:17px;}
+.ck-early-panel>p,.ck-early-history>p{max-width:800px;line-height:1.6;}
+.ck-early-group{border-top:1px solid var(--color-border-soft);padding-top:17px;margin-top:18px;}
+.ck-early-group h3{font-size:19px;font-weight:600;margin:0 0 11px;color:var(--color-text);}
+.ck-early-list{display:grid;gap:9px;}
+.ck-early-option{display:flex;align-items:center;gap:12px;min-height:66px;padding:12px;border:1px solid var(--color-border-soft);border-radius:11px;background:var(--color-bg);cursor:pointer;transition:border-color .15s,transform .15s;}
+.ck-early-option:has(input:checked){border-color:var(--color-accent);background:var(--color-surface-raised);}
+.ck-early-option input,.ck-early-round input{accent-color:var(--color-accent);width:18px;height:18px;flex-shrink:0;}
+.ck-early-option span{flex:1;min-width:0;display:grid;gap:4px;}
+.ck-early-option strong{overflow-wrap:anywhere;color:var(--color-text);font-size:14px;}
+.ck-early-option small,.ck-early-record small{color:var(--color-muted);font-size:12px;}
+.ck-early-option b{white-space:nowrap;color:var(--color-accent);font-size:16px;}
+.ck-early-bottom{display:grid;gap:12px;margin-top:16px;padding:13px 0;}
+.ck-early-bottom p{margin:0;color:var(--color-text);}
+.ck-early-bottom p small{display:block;color:var(--color-muted);margin-top:6px;line-height:1.5;}
+.ck-early-round{display:flex;align-items:center;gap:9px;color:var(--color-text);font-size:13px;}
+.ck-early-bottom>.button{justify-self:start;}
+.ck-early-record{display:flex;align-items:center;justify-content:space-between;gap:15px;flex-wrap:wrap;border-top:1px solid var(--color-border-soft);padding:15px 0;}
+.ck-early-record>div:first-child{min-width:150px;flex:1;}
+.ck-early-record h3{font-weight:600;color:var(--color-text);font-size:16px;margin:5px 0;}
+.ck-early-record>strong{color:var(--color-accent);font-size:17px;white-space:nowrap;}
+.ck-receive-actions{display:flex;gap:9px;align-items:center;flex-wrap:wrap;width:100%;}
+.ck-receive-actions span{font-size:12px;color:var(--color-muted);}
+@media(hover:hover) and (pointer:fine){.ck-early-option:hover{border-color:var(--color-accent);transform:translateY(-1px);}}
+@media(max-width:640px){.ck-early-panel,.ck-early-history{padding:17px;}.ck-early-option{gap:9px;padding:11px;}.ck-early-option b{font-size:14px;}.ck-receive-actions>.button{flex:1 1 130px;}.ck-early-bottom>.button{width:100%;}}

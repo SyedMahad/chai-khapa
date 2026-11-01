@@ -1,0 +1,17 @@
+/* Phase 3.7.1: Settlement Recovery UI. All colors use Smoky Slate tokens. */
+.settlement-recovery { margin:16px 0; border-color:var(--color-accent, #DC9D75); }
+.recovery-head {display:flex; align-items:flex-start; justify-content:space-between; gap:18px; margin-bottom:15px;}
+.recovery-head h2 {font-family:inherit; font-size:clamp(20px,2vw,25px); line-height:1.2; margin:4px 0 7px; color:var(--color-text, #F4F5F3);}
+.recovery-head p.muted-small {max-width:68ch; line-height:1.6;}
+.recovery-count {flex-shrink:0; padding:7px 11px; border:1px solid var(--color-accent, #DC9D75); color:var(--color-accent, #DC9D75); border-radius:999px; font-size:12px; font-weight:700; white-space:nowrap;}
+.recovery-list{display:grid;gap:10px;}
+.recovery-row{display:flex; align-items:center; justify-content:space-between; gap:14px; border:1px solid var(--color-border-soft, #627184); border-radius:12px; background:var(--color-bg, #273440); padding:14px 16px; min-width:0;}
+.recovery-row:hover{border-color:var(--color-border-hover, #DC9D75);}
+.recovery-description{min-width:0;display:grid;gap:4px;}
+.recovery-description strong{font-size:14px;line-height:1.4;color:var(--color-text, #F4F5F3);}
+.recovery-description span,.recovery-description small{font-size:12px;line-height:1.5;color:var(--color-muted, #CBD3DA);}
+.recovery-row>.button{flex-shrink:0;}
+.recovery-confirm{display:grid;gap:8px;max-width:390px;}
+.recovery-confirm p{font-size:12px;color:var(--color-text,#F4F5F3);line-height:1.6;margin:0;}
+.recovery-confirm-buttons{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;}
+@media(max-width:720px){.recovery-head{display:block}.recovery-count{display:inline-block;margin-top:9px}.recovery-row{flex-direction:column;align-items:stretch;padding:14px}.recovery-row>.button,.recovery-confirm-buttons .button{width:100%;justify-content:center}.recovery-confirm-buttons{display:grid;grid-template-columns:1fr 1fr}.recovery-row button{min-height:44px}}

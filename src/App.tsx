@@ -4,22 +4,26 @@ import type { User } from '@supabase/supabase-js'
 import { hasSupabaseConfig, supabase } from './lib/supabase'
 import { allocateShares, displayName, formatPkr, initials, relativeDate, rupeesToPaisa } from './lib/finance'
 import { invitationUrl, oauthReturnUrl } from './lib/urls'
-import { computeTransfers } from './lib/settlements'
 import { singleGroupEntryDestination } from './lib/entryRouting'
 import { whatsappInviteHref } from './lib/sharing'
 import { useInstallApp } from './lib/install'
+import { ChaiSelect } from './components/ChaiSelect'
+import { describeAppError, diagnosticDetails } from './lib/errors'
 
 type View = 'landing' | 'dashboard' | 'groups' | 'group' | 'record' | 'activity' | 'dues' | 'notifications' | 'profile' | 'join'
 type Profile = { user_id: string; first_name: string | null; last_name: string | null; name_confirmed_at: string | null }
 type Group = { id: string; name: string; owner_user_id: string; created_at: string; timezone: string; archived_at?: string | null }
 type Member = { group_id: string; user_id: string; role: string; left_at: string | null; name: string }
 type Share = { user_id: string; share_paisa: number }
-type Expense = { id: string; group_id: string; amount_paisa: number; paid_by_user_id: string; description: string | null; occurred_at: string; created_at: string; shares: Share[] }
+type Contribution = { user_id: string; amount_paisa: number }
+type Expense = { id: string; group_id: string; amount_paisa: number; paid_by_user_id: string; description: string | null; occurred_at: string; created_at: string; shares: Share[]; contributions: Contribution[] }
 type Balance = { user_id: string; first_name: string | null; last_name: string | null; total_paid_paisa: number; total_share_paisa: number; net_paisa: number }
 type GroupOverview = { id: string; name: string; net: number; memberCount: number; sessionCount: number; archived: boolean; balances: Balance[] }
 type Notification = { id: string; group_id: string | null; type: string; title: string; body: string; target_type: string | null; target_id: string | null; read_at: string | null; created_at: string }
 type SettlementPeriod = { id: string; group_id: string; period_month: string; start_at: string; end_at: string; closed_at: string }
-type SettlementTransfer = { id: string; period_id: string; group_id: string; debtor_user_id: string; creditor_user_id: string; amount_paisa: number; status: 'unpaid' | 'awaiting_confirmation' | 'confirmed'; confirmed_at: string | null }
+type PendingSettlementMonth = { group_id: string; group_name: string; period_month: string; session_count: number; total_paisa: number; can_close: boolean }
+type SettlementTransfer = { id: string; period_id: string | null; source: 'month_end' | 'early'; origin_month: string | null; group_id: string; debtor_user_id: string; creditor_user_id: string; amount_paisa: number; status: 'unpaid' | 'awaiting_confirmation' | 'confirmed'; confirmed_at: string | null }
+type OpenSuggestion = { group_id: string; debtor_user_id: string; creditor_user_id: string; amount_paisa: number }
 type PaymentClaim = { id: string; transfer_id: string; actual_paid_paisa: number; rounding_adjustment_paisa: number; claimed_by_user_id: string; status: 'pending' | 'confirmed' | 'rejected'; created_at: string }
 
 
@@ -78,8 +82,10 @@ export default function App() {
   const [balances, setBalances] = useState<Balance[]>([])
   const [notifications, setNotifications] = useState<Notification[]>([])
   const [settlementPeriods, setSettlementPeriods] = useState<SettlementPeriod[]>([])
+  const [pendingSettlementMonths, setPendingSettlementMonths] = useState<PendingSettlementMonth[]>([])
   const [settlementTransfers, setSettlementTransfers] = useState<SettlementTransfer[]>([])
   const [paymentClaims, setPaymentClaims] = useState<PaymentClaim[]>([])
+  const [openSuggestions, setOpenSuggestions] = useState<OpenSuggestion[]>([])
   const [settlementLoading, setSettlementLoading] = useState(false)
   const settlementRequestRef = useRef(0)
   const [unreadCount, setUnreadCount] = useState(0)
@@ -177,7 +183,7 @@ export default function App() {
 
   useEffect(() => {
     workspaceRequestRef.current++; overviewRequestRef.current++; groupRequestRef.current++; notificationRequestRef.current++; settlementRequestRef.current++
-    setProfile(null); setGroups([]); setGroupId(null); setOverview([]); setMembers([]); setExpenses([]); setBalances([]); setNotifications([]); setSettlementPeriods([]); setSettlementTransfers([]); setPaymentClaims([])
+    setProfile(null); setGroups([]); setGroupId(null); setOverview([]); setMembers([]); setExpenses([]); setBalances([]); setNotifications([]); setSettlementPeriods([]); setPendingSettlementMonths([]); setSettlementTransfers([]); setPaymentClaims([]); setOpenSuggestions([])
     if (user) void refreshWorkspace()
   }, [user?.id]) // On sign-in/out, discard another user's data; not on ordinary rerenders.
 
@@ -220,7 +226,17 @@ export default function App() {
         const id = s.expense_id as string
         shares.set(id, [...(shares.get(id) ?? []), { user_id: s.user_id as string, share_paisa: s.share_paisa as number }])
       }
-      setExpenses(rows.map((row) => ({ ...row, shares: shares.get(row.id) ?? [] })))
+      const contributionResult = rows.length
+        ? await supabase.from('expense_contributions').select('expense_id,user_id,amount_paisa').in('expense_id', rows.map((x) => x.id))
+        : { data: [], error: null }
+      if (contributionResult.error) throw contributionResult.error
+      if (request !== groupRequestRef.current) return
+      const contributions = new Map<string, Contribution[]>()
+      for (const c of contributionResult.data ?? []) {
+        const id = c.expense_id as string
+        contributions.set(id, [...(contributions.get(id) ?? []), { user_id: c.user_id as string, amount_paisa: c.amount_paisa as number }])
+      }
+      setExpenses(rows.map((row) => ({ ...row, shares: shares.get(row.id) ?? [], contributions: contributions.get(row.id) ?? [] })))
       setBalances((b.data ?? []) as Balance[])
     } catch (reason) { if (request === groupRequestRef.current) setError(messageOf(reason)) }
     finally { if (request === groupRequestRef.current) setGroupLoading(false) }
@@ -258,17 +274,24 @@ export default function App() {
   const refreshSettlements = useCallback(async () => {
     const req = ++settlementRequestRef.current
     if (!supabase || !user || !groups.length) {
-      setSettlementPeriods([]); setSettlementTransfers([]); setPaymentClaims([]); setSettlementLoading(false); return
+      setSettlementPeriods([]); setPendingSettlementMonths([]); setSettlementTransfers([]); setPaymentClaims([]); setOpenSuggestions([]); setSettlementLoading(false); return
     }
     setSettlementLoading(true)
     try {
       const ids = groups.map(g => g.id)
-      const [p, t] = await Promise.all([
+      const [p, t, open, missed] = await Promise.all([
         supabase.from('settlement_periods').select('id,group_id,period_month,start_at,end_at,closed_at').in('group_id', ids).order('period_month', { ascending: false }),
-        supabase.from('settlement_transfers').select('id,period_id,group_id,debtor_user_id,creditor_user_id,amount_paisa,status,confirmed_at').in('group_id', ids),
+        supabase.from('settlement_transfers').select('id,period_id,source,origin_month,group_id,debtor_user_id,creditor_user_id,amount_paisa,status,confirmed_at').in('group_id', ids),
+        Promise.all(ids.map(async group => {
+          const { data, error: openError } = await supabase!.rpc('get_open_month_suggestions', { p_group_id: group })
+          if (openError) throw openError
+          return ((data ?? []) as Omit<OpenSuggestion, 'group_id'>[]).map(row => ({ ...row, group_id: group }))
+        })),
+        supabase.rpc('list_pending_settlement_months'),
       ])
       if (p.error) throw p.error
       if (t.error) throw t.error
+      if (missed.error) throw missed.error
       const transferRows = (t.data ?? []) as SettlementTransfer[]
       const relevantIds = transferRows.filter(row => row.debtor_user_id === user.id || row.creditor_user_id === user.id).map(row => row.id)
       const claims = relevantIds.length ? await supabase.from('settlement_payment_claims')
@@ -277,7 +300,9 @@ export default function App() {
       if (claims.error) throw claims.error
       if (req !== settlementRequestRef.current) return
       setSettlementPeriods((p.data ?? []) as SettlementPeriod[])
+      setPendingSettlementMonths((missed.data ?? []) as PendingSettlementMonth[])
       setSettlementTransfers(transferRows)
+      setOpenSuggestions(open.flat())
       setPaymentClaims((claims.data ?? []) as PaymentClaim[])
     } catch (reason) { if (req === settlementRequestRef.current) setError(messageOf(reason)) }
     finally { if (req === settlementRequestRef.current) setSettlementLoading(false) }
@@ -358,7 +383,7 @@ export default function App() {
     if (!supabase) return
     const { error: signOutError } = await supabase.auth.signOut()
     if (signOutError) { setError(signOutError.message); return }
-    setProfile(null); setGroups([]); setGroupId(null); setMembers([]); setExpenses([]); setBalances([]); setNotifications([]); setSettlementPeriods([]); setSettlementTransfers([]); setPaymentClaims([])
+    setProfile(null); setGroups([]); setGroupId(null); setMembers([]); setExpenses([]); setBalances([]); setNotifications([]); setSettlementPeriods([]); setPendingSettlementMonths([]); setSettlementTransfers([]); setPaymentClaims([]); setOpenSuggestions([])
     navigate('landing')
   }
   async function markRead(id: string) {
@@ -380,6 +405,19 @@ export default function App() {
     if (rpcError) throw rpcError
     await Promise.all([refreshSettlements(), refreshOverview(), refreshNotifications()])
     setToast('Month closed. Settlement instructions have been created.')
+  }
+  async function claimEarly(groupId: string, rows: { recipient: string; amountPaisa: number }[], requestId: string, roundUp: boolean) {
+    if (!supabase) throw new Error('Supabase is unavailable')
+    const { error: rpcError } = await supabase.rpc('claim_early_settlements', {
+      p_group_id: groupId,
+      p_creditor_user_ids: rows.map(r => r.recipient),
+      p_amounts_paisa: rows.map(r => r.amountPaisa),
+      p_request_id: requestId,
+      p_round_up: roundUp,
+    })
+    if (rpcError) throw rpcError
+    await Promise.all([refreshSettlements(), refreshOverview(), refreshNotifications()])
+    setToast('Payment claims sent. Recipients must confirm before balances clear.')
   }
   async function claimTransfer(transferId: string, paidPaisa: number) {
     if (!supabase) return
@@ -419,7 +457,7 @@ export default function App() {
     </aside>
     {mobileNav && <button className="nav-scrim" aria-label="Close menu" onClick={() => setMobileNav(false)} />}
     <div className="workspace-main">
-      <header className="app-topbar"><div className="topbar-left"><button className="icon-button mobile-menu" aria-label="Open menu" onClick={() => setMobileNav(true)}><Icon name="menu" /></button><span className="crumb">WORKSPACE</span><span className="slash">/</span><span className="crumb-current">{route.view === 'dashboard' ? 'Overview' : route.view === 'group' ? 'Group settings' : route.view === 'dues' ? 'Settlements' : route.view === 'join' ? 'Join group' : route.view.charAt(0).toUpperCase() + route.view.slice(1)}</span></div><div className="topbar-right"><span className="online-dot" aria-hidden="true"/><span className="workspace-status">PRIVATE GROUP SPACE</span><button className="icon-button refresh-button" title="Refresh all records" aria-label="Refresh all records" onClick={() => { void refreshWorkspace(); void refreshGroup(); void refreshOverview(); void refreshNotifications() }}><Icon name="refresh" size={17}/></button>{refreshing && <span className="muted-small" aria-live="polite">Syncing</span>}{install.canPrompt && !install.installed && <button className="button button-outline install-shortcut" onClick={() => void install.install()}>Install app</button>}<button className="icon-button bell-top" aria-label={`Notifications, ${unreadCount} unread`} onClick={() => navigate('notifications')}><Icon name="bell" />{unreadCount > 0 && <span className="top-badge"/>}</button><button className="avatar-button" aria-label="Open my profile" onClick={() => navigate('profile')}><Avatar name={displayName(profile)} /></button></div></header>
+      <header className="app-topbar"><div className="topbar-left"><button className="icon-button mobile-menu" aria-label="Open menu" onClick={() => setMobileNav(true)}><Icon name="menu" /></button><span className="crumb">WORKSPACE</span><span className="slash">/</span><span className="crumb-current">{route.view === 'dashboard' ? 'Overview' : route.view === 'group' ? 'Group settings' : route.view === 'dues' ? 'Settlements' : route.view === 'join' ? 'Join group' : route.view.charAt(0).toUpperCase() + route.view.slice(1)}</span></div><div className="topbar-right"><span className="online-dot" aria-hidden="true"/><span className="workspace-status">PRIVATE GROUP SPACE</span><button className="icon-button refresh-button" title="Refresh all records" aria-label="Refresh all records" onClick={() => { void refreshWorkspace(); void refreshGroup(); void refreshOverview(); void refreshNotifications(); void refreshSettlements() }}><Icon name="refresh" size={17}/></button>{refreshing && <span className="muted-small" aria-live="polite">Syncing</span>}{install.canPrompt && !install.installed && <button className="button button-outline install-shortcut" onClick={() => void install.install()}>Install app</button>}<button className="icon-button bell-top" aria-label={`Notifications, ${unreadCount} unread`} onClick={() => navigate('notifications')}><Icon name="bell" />{unreadCount > 0 && <span className="top-badge"/>}</button><button className="avatar-button" aria-label="Open my profile" onClick={() => navigate('profile')}><Avatar name={displayName(profile)} /></button></div></header>
       <main id="content" className="page-content">
         {error && <div className="alert error-alert" role="alert"><span>{error}</span><button aria-label="Dismiss error" onClick={() => setError('')}><Icon name="close" size={17}/></button></div>}
         {route.view !== 'join' && !profile?.name_confirmed_at && !workspaceLoading && <div className="onboarding-bar"><div className="progress-ring" style={{ '--progress': '50%' } as CSSProperties}><span>1/2</span></div><div><strong>Make it yours.</strong><p>Confirm your first and last name to finish setting up your account.</p></div><button className="button button-outline" onClick={() => navigate('profile')}>Complete profile <Icon name="arrow" size={16}/></button></div>}
@@ -443,8 +481,8 @@ export default function App() {
         </>}
         {route.view === 'groups' && <GroupsPage groups={groups} groupId={groupId} userId={user.id} onChoose={(id) => { setGroupId(id); navigate('group', `/app/groups/${id}`) }} onGroupCreated={async (id) => { await refreshWorkspace(); setGroupId(id); navigate('group', `/app/groups/${id}`); setToast('Group created. Invite your colleagues!') }} />}
         {route.view === 'group' && <GroupDetailsPage key={activeGroup?.id ?? 'empty'} group={activeGroup?.id === route.token ? activeGroup : null} members={members} balances={balances} expenses={expenses} userId={user.id} loading={groupLoading} onBack={() => navigate('dashboard')} onRecord={() => navigate('record')} onActivity={() => navigate('activity')} onInviteSuccess={setToast} onChanged={async () => { await refreshWorkspace(); await refreshGroup(); await refreshOverview() }} onMembershipChanged={async () => { await refreshWorkspace(); navigate('dashboard') }} />}
-        {route.view === 'dues' && <DuesPage groups={groups} overviews={overview} userId={user.id} periods={settlementPeriods} transfers={settlementTransfers} claims={paymentClaims} loading={overviewLoading || settlementLoading} onCloseMonth={closeMonth} onClaimPaid={claimTransfer} onConfirm={decideClaim} />}
-        {route.view === 'record' && <RecordPage group={activeGroup} members={members} expenses={expenses} userId={user.id} onBack={() => navigate('dashboard')} onSaved={async () => { await Promise.all([refreshGroup(), refreshOverview(), refreshNotifications()]); setToast('Session recorded. Everyone’s share has been saved.'); navigate('group', `/app/groups/${groupId}`) }} />}
+        {route.view === 'dues' && <DuesPage groups={groups} overviews={overview} userId={user.id} periods={settlementPeriods} transfers={settlementTransfers} claims={paymentClaims} openSuggestions={openSuggestions} loading={overviewLoading || settlementLoading} pendingMonths={pendingSettlementMonths} onCloseMonth={closeMonth} onEarlyClaim={claimEarly} onClaimPaid={claimTransfer} onConfirm={decideClaim} />}
+        {route.view === 'record' && <RecordPage group={activeGroup} members={members} expenses={expenses} userId={user.id} onBack={() => navigate('dashboard')} onSaved={async () => { const sync = await Promise.allSettled([refreshGroup(), refreshOverview(), refreshNotifications()]); const failed = sync.some(result => result.status === 'rejected'); if (failed) console.warn('[Chai Khapa] Session was saved; a dashboard refresh failed.'); setToast(failed ? 'Session saved. Some screens may need a refresh.' : 'Session recorded. Everyone’s share has been saved.'); navigate('group', `/app/groups/${groupId}`) }} />}
         {route.view === 'activity' && <ActivityPage group={activeGroup} expenses={expenses} members={members} loading={groupLoading} onRecord={() => navigate('record')} />}
         {route.view === 'notifications' && <NotificationsPage notifications={notifications} unreadCount={unreadCount} hasMore={hasMoreNotifications} onMore={() => setNotificationLimit((x) => x + 30)} onMarkRead={markRead} onMarkAll={markAllRead} onGo={(n) => { if (n.group_id && groups.some((g) => g.id === n.group_id)) setGroupId(n.group_id); navigate(n.target_type === 'expense' ? 'activity' : n.target_type === 'settlement_transfer' ? 'dues' : 'groups') }} />}
         {route.view === 'profile' && <ProfilePage install={install} user={user} profile={profile} onSave={async () => { await refreshWorkspace(); await refreshGroup(); await refreshOverview(); setToast('Your profile has been updated.') }} onSignOut={signOut} />}
@@ -456,7 +494,7 @@ export default function App() {
   </div>
 }
 
-function messageOf(error: unknown): string { return error instanceof Error ? error.message : typeof error === 'string' ? error : 'Something went wrong. Please try again.' }
+function messageOf(error: unknown): string { return describeAppError(error) }
 function NavButton({ icon, text, active, onClick, badge }: { icon: IconName; text: string; active: boolean; onClick: () => void; badge?: number }) { return <button className={`nav-item ${active ? 'active' : ''}`} onClick={onClick} aria-current={active ? 'page' : undefined}><Icon name={icon}/><span>{text}</span>{badge ? <span className="nav-badge">{badge > 99 ? '99+' : badge}</span> : null}</button> }
 function NavMobile({ icon, label, active, count, onClick }: { icon: IconName; label: string; active: boolean; count?: number; onClick: () => void }) { return <button onClick={onClick} aria-current={active ? 'page' : undefined} className={active ? 'active' : ''}><span className="mobile-icon"><Icon name={icon}/>{count ? <i className="mobile-dot"/> : null}</span><small>{label}</small></button> }
 function LoadingPanel() { return <div className="loading-panel"><Spinner /><p>Getting your latest chai records…</p></div> }
@@ -557,7 +595,7 @@ function GroupDetailsPage({ group, members, balances, expenses, userId, loading,
         </section> : tab === 'people' ? <section className="panel"><SectionHead label="MEMBERS" title="Everyone at the table" aside={<span className="people-count">{members.length} active</span>}/>{loading ? <LoadingPanel /> : <div className="member-management-list">{members.map(m => { const balance = balances.find(b => b.user_id === m.user_id); return <div key={m.user_id} className="member-management-row"><Avatar name={m.name}/><div><strong>{m.name}{m.user_id === userId && <small> · You</small>}</strong><span>{m.role === 'owner' ? 'Owner' : 'Member'}</span></div><b className={(Number(balance?.net_paisa ?? 0) < 0 ? 'negative' : 'positive')}>{money(balance?.net_paisa ?? 0)}</b></div> })}</div>}<p className="panel-bottom-note">Net positions only. Final transfers and confirmations are a separate settlement step.</p></section> : <section className="panel"><SectionHead label="PREFERENCES" title="Group settings"/>
           <label className="field-label" htmlFor="rename-group">GROUP NAME</label><div className="manage-inline"><input id="rename-group" value={name} maxLength={80} disabled={!owned || busy} onChange={e=>setName(e.target.value)} /><button className="button button-outline" disabled={!owned || busy || name.trim() === group.name || name.trim().length < 2} onClick={() => void action(async () => { await call('rename_group', { p_group_id: group.id, p_name: name.trim() }); await onChanged(); onInviteSuccess('Group renamed') })}>Save</button></div>
           {!owned && <p className="muted-small">Only the group owner can change settings.</p>}
-          {owned && <><div className="divider"/><label className="field-label" htmlFor="owner-choice">TRANSFER OWNERSHIP</label><p className="muted-small">Transfer to an active member before leaving. Your role becomes member.</p><div className="manage-inline"><select id="owner-choice" value={nextOwner} onChange={e => setNextOwner(e.target.value)}><option value="">Choose member</option>{members.filter(m=>m.user_id!==userId).map(m=><option value={m.user_id} key={m.user_id}>{m.name}</option>)}</select><button disabled={!nextOwner || busy} className="button button-outline" onClick={() => setSettingsConfirm('transfer')}>Transfer</button></div></>}
+          {owned && <><div className="divider"/><label className="field-label" htmlFor="owner-choice">TRANSFER OWNERSHIP</label><p className="muted-small">Transfer to an active member before leaving. Your role becomes member.</p><div className="manage-inline"><ChaiSelect id="owner-choice" value={nextOwner} onChange={setNextOwner} placeholder="Choose member" options={members.filter(m=>m.user_id!==userId).map(m=>({value:m.user_id,label:m.name}))}/><button disabled={!nextOwner || busy} className="button button-outline" onClick={() => setSettingsConfirm('transfer')}>Transfer</button></div></>}
           {owned && <><div className="divider"/><p className="micro">ARCHIVING</p><p className="muted-small">Archived groups keep their ledger but stop new sessions and invitations. You can reopen them.</p><button className="button button-outline" disabled={busy} onClick={() => setSettingsConfirm('archive')}>{archived ? 'Reopen group' : 'Archive group'}</button></>}
           {settingsConfirm && <div className="action-confirm" role="group" aria-label="Confirm group change"><p>{settingsConfirm === 'transfer' ? `Make ${members.find(m => m.user_id === nextOwner)?.name ?? 'this colleague'} the owner of ${group.name}?` : archived ? `Reopen ${group.name} for new sessions?` : `Archive ${group.name}? Existing records will stay accessible.`}</p><div className="action-confirm-actions"><button className="button button-outline" onClick={() => setSettingsConfirm(null)} disabled={busy}>Cancel</button><button className="button button-copper" disabled={busy} onClick={() => void action(async () => { if (settingsConfirm === 'transfer') { await call('transfer_group_ownership', { p_group_id: group.id, p_new_owner_user_id: nextOwner }); onInviteSuccess('Ownership transferred') } else { await call('set_group_archived', { p_group_id: group.id, p_archived: !archived }); onInviteSuccess(archived ? 'Group reopened' : 'Group archived') } setSettingsConfirm(null); await onChanged() })}>Confirm change</button></div></div>}
         </section>}
@@ -569,9 +607,10 @@ function GroupDetailsPage({ group, members, balances, expenses, userId, loading,
   </>
 }
 
-function DuesPage({ groups, overviews, userId, periods, transfers, claims, loading, onCloseMonth, onClaimPaid, onConfirm }: {
-  groups: Group[]; overviews: GroupOverview[]; userId: string; periods: SettlementPeriod[];
-  transfers: SettlementTransfer[]; claims: PaymentClaim[]; loading: boolean;
+function DuesPage({ groups, overviews, userId, periods, pendingMonths, transfers, claims, openSuggestions, loading, onCloseMonth, onEarlyClaim, onClaimPaid, onConfirm }: {
+  groups: Group[]; overviews: GroupOverview[]; userId: string; periods: SettlementPeriod[]; pendingMonths: PendingSettlementMonth[];
+  transfers: SettlementTransfer[]; claims: PaymentClaim[]; openSuggestions: OpenSuggestion[]; loading: boolean;
+  onEarlyClaim: (groupId: string, rows: { recipient: string; amountPaisa: number }[], requestId: string, roundUp: boolean) => Promise<void>;
   onCloseMonth: (groupId: string, month: string) => Promise<void>;
   onClaimPaid: (transferId: string, amount: number) => Promise<void>;
   onConfirm: (claimId: string, received: boolean) => Promise<void>
@@ -582,13 +621,6 @@ function DuesPage({ groups, overviews, userId, periods, transfers, claims, loadi
   const [closeConfirm, setCloseConfirm] = useState<string | null>(null)
   const [transferConfirm, setTransferConfirm] = useState<string | null>(null)
   const [filter, setFilter] = useState<'to_pay' | 'to_receive' | 'all'>('all')
-  const previousMonth = useMemo(() => {
-    const today = new Date()
-    const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Karachi', year: 'numeric', month: '2-digit' }).formatToParts(today)
-    const year = Number(parts.find(p => p.type === 'year')?.value ?? today.getUTCFullYear())
-    const month = Number(parts.find(p => p.type === 'month')?.value ?? today.getUTCMonth() + 1)
-    return new Date(Date.UTC(year, month - 2, 1)).toISOString().slice(0,10)
-  }, [])
   function getName(groupId: string, id: string) {
     return displayName(overviews.find(g => g.id === groupId)?.balances.find(b => b.user_id === id))
   }
@@ -596,18 +628,46 @@ function DuesPage({ groups, overviews, userId, periods, transfers, claims, loadi
     setActionError(''); setBusy(key)
     try { await action() } catch (reason) { setActionError(messageOf(reason)) } finally { setBusy(null) }
   }
-  const suggestions = overviews.flatMap(g => computeTransfers(g.balances).filter(t => t.from === userId).map(t => ({ ...t, groupId: g.id, groupName: g.name, recipient: getName(g.id, t.to) })))
+  const currentSuggestions = openSuggestions.filter(s => s.debtor_user_id === userId)
   const relevant = transfers.filter(t => t.debtor_user_id === userId || t.creditor_user_id === userId)
   const pending = relevant.filter(t => t.status !== 'confirmed')
   const total = pending.filter(t => t.debtor_user_id === userId).reduce((sum, t) => sum + Number(t.amount_paisa), 0)
-  const openMonths = groups.filter(g => g.owner_user_id === userId && !periods.some(p => p.group_id === g.id && p.period_month === previousMonth))
   return <>
     <div className="page-heading short"><div><p className="micro accent">SETTLE WITH CONFIDENCE</p><h1>Monthly settlements<span className="punctuation">.</span></h1><p>Track what you owe, confirm money received, and keep every month accountable.</p></div></div>
-    <div className="settlement-summary"><div><p className="micro">YOU STILL OWE · CONFIRMATION PENDING INCLUDED</p><strong>{money(total)}</strong><p>Only confirmed receipts clear a settlement.</p></div><div><p className="micro">HOW IT WORKS</p><p>A group owner can finalize a completed month. Pay outside Chai Khapa, report the payment, and let the recipient confirm it. Chai Khapa never moves money.</p></div></div>
+    <div className="settlement-summary"><div><p className="micro">FINALIZED TRANSFERS DUE · PENDING INCLUDED</p><strong>{money(total)}</strong><p>Excludes unclosed months listed below. Only confirmed receipts clear a settlement.</p></div><div><p className="micro">HOW IT WORKS</p><p>Completed months close automatically after midnight Pakistan time when the scheduler is active. You can also settle current-month balances early. Payments happen outside Chai Khapa and require recipient confirmation.</p></div></div>
     {actionError && <div role="alert" className="alert error-alert">{actionError}</div>}
-    {openMonths.length > 0 && <section className="panel settlement-close"><SectionHead label="GROUP OWNER CONTROLS" title="Close the completed month"/><p className="muted-small">Close {new Date(`${previousMonth}T12:00:00Z`).toLocaleDateString('en-PK', { month: 'long', year: 'numeric', timeZone: 'UTC' })} after the month ends in Pakistan time. Existing session entries for the closed month will be locked.</p><div className="settlement-close-actions">{openMonths.map(g => <div key={g.id} className="close-group-row"><div><strong>{g.name}</strong><small>{closeConfirm === g.id ? 'Closing permanently locks new entries for this month.' : 'Ready to finalize the completed month'}</small></div>{closeConfirm === g.id ? <div className="close-inline-actions"><button className="button button-outline" disabled={busy !== null} onClick={() => setCloseConfirm(null)}>Cancel</button><button className="button button-copper" disabled={busy !== null} onClick={() => void run(`close:${g.id}`, async () => { await onCloseMonth(g.id, previousMonth); setCloseConfirm(null) })}>{busy === `close:${g.id}` ? <Spinner/> : <Icon name="check" size={16}/>} Confirm close</button></div> : <button className="button button-outline" disabled={busy !== null} onClick={() => setCloseConfirm(g.id)}>Close month <Icon name="arrow" size={16}/></button>}</div>)}</div></section>}
+    <EarlySettlementChoices groups={groups} suggestions={currentSuggestions}
+      getName={getName} onClaim={onEarlyClaim} loading={loading} />
+    <EarlySettlementHistory transfers={relevant.filter(t => t.source === 'early')}
+      claims={claims} me={userId} getName={getName} onMarkPaid={onClaimPaid}
+      onConfirm={onConfirm} loading={loading}/>
+    {!loading && pendingMonths.length > 0 && <section className="panel settlement-recovery" aria-labelledby="recovery-title">
+      <div className="recovery-head">
+        <div><p className="micro accent">SETTLEMENT RECOVERY</p><h2 id="recovery-title">Unclosed months need attention</h2>
+          <p className="muted-small">These months have recorded sessions but no finalized settlement. The automatic scheduler should eventually catch up; a group owner can resolve them here now.</p></div>
+        <span className="recovery-count">{pendingMonths.length} pending</span>
+      </div>
+      <div className="recovery-list">{pendingMonths.map(month => {
+        const key = `${month.group_id}:${month.period_month}`
+        const monthLabel = new Date(`${month.period_month}T12:00:00Z`).toLocaleDateString('en-PK', { month: 'long', year: 'numeric', timeZone: 'UTC' })
+        return <div className="recovery-row" key={key}>
+          <div className="recovery-description"><strong>{monthLabel} · {month.group_name}</strong>
+            <span>{month.session_count} {Number(month.session_count) === 1 ? 'session' : 'sessions'} · {money(Number(month.total_paisa))} in recorded bills</span>
+            {!month.can_close && <small>Only this group's owner can finalize manually. The scheduler can also close it on its next successful run.</small>}
+          </div>
+          {month.can_close && (closeConfirm === key ?
+            <div className="recovery-confirm" role="group" aria-label={`Confirm closing ${monthLabel}`}>
+              <p>Finalize {monthLabel}? This creates payment instructions and prevents new backdated sessions in that month. It does <strong>not</strong> mark any payment as received.</p>
+              <div className="recovery-confirm-buttons"><button type="button" className="button button-outline" onClick={() => setCloseConfirm(null)} disabled={busy !== null}>Cancel</button>
+                <button type="button" className="button button-copper" disabled={busy !== null} onClick={() => void run(`recover:${key}`, async () => { await onCloseMonth(month.group_id, month.period_month); setCloseConfirm(null) })}>{busy === `recover:${key}` ? <Spinner/> : <Icon name="check" size={16}/>} Finalize month</button></div>
+            </div> :
+            <button type="button" className="button button-outline" disabled={busy !== null} onClick={() => setCloseConfirm(key)}>Review & close <Icon name="arrow" size={15}/></button>)}
+        </div>
+      })}</div>
+    </section>}
+
     <section className="panel settlement-ledger"><SectionHead label="PERIOD LEDGER" title="Your settlement instructions" aside={<span className="people-count">{pending.length} pending</span>}/><div className="settlement-filters" role="group" aria-label="Filter settlement instructions"><button className={filter === 'all' ? 'active' : ''} aria-pressed={filter === 'all'} onClick={() => setFilter('all')}>All</button><button className={filter === 'to_pay' ? 'active' : ''} aria-pressed={filter === 'to_pay'} onClick={() => setFilter('to_pay')}>To pay</button><button className={filter === 'to_receive' ? 'active' : ''} aria-pressed={filter === 'to_receive'} onClick={() => setFilter('to_receive')}>To receive</button></div>
-      {loading ? <LoadingPanel/> : !periods.length ? <Empty icon="receipt" title="No closed months yet" detail="An owner can close each completed month. Until then, you can review live provisional balances below."/> : periods.map(p => {
+      {loading ? <LoadingPanel/> : !periods.length ? <Empty icon="receipt" title="No closed months yet" detail={pendingMonths.length ? "Unclosed months are listed above. Once a month is finalized, its payment instructions appear here." : "Nothing has been finalized yet. Completed months close through the scheduler; you can also settle current-month balances above."}/> : periods.map(p => {
         const rows = relevant.filter(t => t.period_id === p.id && (filter === 'all' || (filter === 'to_pay' ? t.debtor_user_id === userId : t.creditor_user_id === userId)))
         const groupName = groups.find(g => g.id === p.group_id)?.name ?? 'Group'
         if (!rows.length) return null
@@ -619,52 +679,261 @@ function DuesPage({ groups, overviews, userId, periods, transfers, claims, loadi
           const selectedPaid = payChoice[t.id] === 'exact' ? due : rounded
           const claim = claims.find(c => c.transfer_id === t.id && c.status === 'pending')
           return <div className="settlement-transfer" key={t.id}><div className="settlement-transfer-info"><span className="micro">{debtor ? 'PAY TO' : 'RECEIVE FROM'}</span><h4>{getName(t.group_id, otherId)}</h4><strong>{money(due)}</strong><span className={`settlement-status status-${t.status}`}>{t.status === 'confirmed' ? 'Confirmed & settled' : t.status === 'awaiting_confirmation' ? 'Awaiting receipt confirmation' : 'Payment outstanding'}</span></div>
-          {debtor && t.status === 'unpaid' && <div className="settlement-action"><label className="field-label" htmlFor={`pay-method-${t.id}`}>AMOUNT YOU ACTUALLY PAID</label><select id={`pay-method-${t.id}`} value={payChoice[t.id] ?? 'round'} onChange={e => setPayChoice(v => ({...v,[t.id]: e.target.value as 'exact'|'round'}))}><option value="round">Rounded transfer · {money(rounded)}</option><option value="exact">Exact amount · {money(due)}</option></select>{rounded > due && <p className="muted-small">Rounded amount includes a voluntary {money(rounded-due)} extra. Only the exact debt is cleared.</p>}<button className="button button-copper" disabled={busy !== null} onClick={() => setTransferConfirm(t.id)}>{busy===t.id?<Spinner/>:<Icon name="check" size={16}/>} Mark as paid</button>{transferConfirm === t.id && <div className="action-confirm" role="group" aria-label="Confirm external payment"><p>Have you already paid <strong>{money(selectedPaid)}</strong> to <strong>{getName(t.group_id,otherId)}</strong> outside Chai Khapa?</p><div className="action-confirm-actions"><button className="button button-outline" onClick={() => setTransferConfirm(null)}>Cancel</button><button className="button button-copper" disabled={busy !== null} onClick={() => void run(t.id, async () => { await onClaimPaid(t.id, selectedPaid); setTransferConfirm(null) })}>Yes, request confirmation</button></div></div>}</div>}
+          {debtor && t.status === 'unpaid' && <div className="settlement-action"><label className="field-label" htmlFor={`pay-method-${t.id}`}>AMOUNT YOU ACTUALLY PAID</label><ChaiSelect id={`pay-method-${t.id}`} value={payChoice[t.id] ?? 'round'} onChange={choice => setPayChoice(v => ({...v,[t.id]: choice as 'exact'|'round'}))} placeholder="Choose payment amount" options={[{value:'round',label:`Rounded transfer · ${money(rounded)}`},{value:'exact',label:`Exact amount · ${money(due)}`}]} />{rounded > due && <p className="muted-small">Rounded amount includes a voluntary {money(rounded-due)} extra. Only the exact debt is cleared.</p>}<button className="button button-copper" disabled={busy !== null} onClick={() => setTransferConfirm(t.id)}>{busy===t.id?<Spinner/>:<Icon name="check" size={16}/>} Mark as paid</button>{transferConfirm === t.id && <div className="action-confirm" role="group" aria-label="Confirm external payment"><p>Have you already paid <strong>{money(selectedPaid)}</strong> to <strong>{getName(t.group_id,otherId)}</strong> outside Chai Khapa?</p><div className="action-confirm-actions"><button className="button button-outline" onClick={() => setTransferConfirm(null)}>Cancel</button><button className="button button-copper" disabled={busy !== null} onClick={() => void run(t.id, async () => { await onClaimPaid(t.id, selectedPaid); setTransferConfirm(null) })}>Yes, request confirmation</button></div></div>}</div>}
           {!debtor && t.status === 'awaiting_confirmation' && claim && <div className="settlement-action"><p className="muted-small">They reported paying {money(claim.actual_paid_paisa)}. Did you receive it?</p><div className="settlement-buttons"><button className="button button-copper" disabled={busy !== null} onClick={() => void run(claim.id,()=>onConfirm(claim.id,true))}>Confirm received</button><button className="button button-outline" disabled={busy !== null} onClick={() => void run(claim.id,()=>onConfirm(claim.id,false))}>Not received</button></div></div>}
           </div>
         })}</div>
       })}
       {!loading && periods.length>0 && relevant.filter(t => filter === 'all' || (filter === 'to_pay' ? t.debtor_user_id === userId : t.creditor_user_id === userId)).length===0 && <Empty icon="check" title="No transfers in this view" detail="Choose another filter or check back after a month closes."/>}
     </section>
-    <section className="panel settlement-preview"><SectionHead label="LIVE BALANCES" title="Before the next month-end"/><p className="muted-small">These are provisional suggestions across all sessions and confirmed receipts. They can change as more chai is recorded; they are not payment requests.</p>{suggestions.length ? <div className="due-list">{suggestions.map(s => <div className="due-row" key={`${s.groupId}:${s.to}:${s.from}`}><div><span className="micro">{s.groupName}</span><h2>{s.recipient}</h2><p>Current suggested transfer</p></div><strong>{money(s.amountPaisa)}</strong></div>)}</div> : <p className="muted-small">No additional transfers suggested at the moment.</p>}</section>
+
   </>
 }
 
-function RecordPage({ group, members, expenses, userId, onBack, onSaved }: { group: Group | null; members: Member[]; expenses: Expense[]; userId: string; onBack: () => void; onSaved: () => Promise<void> }) {
+/** Open-month claims: selection is per group so the backend can validate atomically. */
+function EarlySettlementChoices({ groups, suggestions, getName, onClaim, loading }: {
+  groups: Group[]; suggestions: OpenSuggestion[]; getName: (groupId:string,id:string)=>string;
+  onClaim: (groupId:string,rows:{recipient:string;amountPaisa:number}[], requestId:string, roundUp:boolean)=>Promise<void>;
+  loading: boolean;
+}) {
+  const [selected,setSelected]=useState<Record<string,boolean>>({})
+  const [roundUp,setRoundUp]=useState(true)
+  const [confirmGroup,setConfirmGroup]=useState<string|null>(null)
+  const [busy,setBusy]=useState(false)
+  const [error,setError]=useState('')
+  const requestId=useRef(crypto.randomUUID())
+  const changeSelection=(key:string,checked:boolean)=>{
+    requestId.current=crypto.randomUUID(); setConfirmGroup(null)
+    setSelected(s=>({...s,[key]:checked}))
+  }
+  const available=groups.map(g=>({group:g, rows:suggestions.filter(s=>s.group_id===g.id)}))
+    .filter(x=>x.rows.length>0)
+  return <section className="panel ck-early-panel">
+    <SectionHead label="PAY ANYTIME" title="Settle this month's balance" />
+    <p className="muted-small">Choose the people you've already paid outside Chai Khapa. Claims remain pending until each recipient confirms. These amounts are for the current month only; older obligations are listed above.</p>
+    {error && <p className="form-error" role="alert">{error}</p>}
+    {loading ? <LoadingPanel/> : !available.length ? <Empty icon="check" title="Nothing new to settle" detail="Your current month has no new suggested transfers. Existing outstanding transfers are listed above."/> : available.map(({group,rows})=>{
+      const chosen=rows.filter(r=>selected[`${group.id}:${r.creditor_user_id}`])
+      const exact=chosen.reduce((sum,r)=>sum+Number(r.amount_paisa),0)
+      const rounded=chosen.reduce((sum,r)=>sum+Math.ceil(Number(r.amount_paisa)/100)*100,0)
+      return <div className="ck-early-group" key={group.id}>
+        <h3>{group.name}</h3>
+        <div className="ck-early-list">{rows.map(r=>{
+          const key=`${group.id}:${r.creditor_user_id}`
+          return <label className="ck-early-option" key={key}>
+            <input type="checkbox" checked={Boolean(selected[key])} disabled={busy}
+              onChange={e=>changeSelection(key,e.target.checked)} />
+            <span><strong>{getName(group.id,r.creditor_user_id)}</strong><small>Current suggested transfer</small></span>
+            <b>{money(r.amount_paisa)}</b>
+          </label>
+        })}</div>
+        {chosen.length>0 && <div className="ck-early-bottom">
+          <label className="ck-early-round"><input type="checkbox" checked={roundUp} disabled={busy} onChange={e=>{setRoundUp(e.target.checked);requestId.current=crypto.randomUUID()}}/> Round each payment up to whole rupees</label>
+          <p><strong>{chosen.length} selected · {money(roundUp?rounded:exact)}</strong>{roundUp&&rounded>exact&&<small> Includes voluntary {money(rounded-exact)} rounding; exact debt stays unchanged.</small>}</p>
+          {confirmGroup===group.id ? <div className="action-confirm" role="group" aria-label="Confirm payments made">
+            <p>Have you already paid the selected colleagues <strong>{money(roundUp?rounded:exact)}</strong> outside Chai Khapa? Reporting payment does not immediately settle the debt.</p>
+            <div className="action-confirm-actions"><button className="button button-outline" type="button" disabled={busy} onClick={()=>setConfirmGroup(null)}>Cancel</button>
+              <button className="button button-copper" type="button" disabled={busy} onClick={async()=>{
+                setBusy(true);setError('')
+                try { await onClaim(group.id,chosen.map(r=>({recipient:r.creditor_user_id,amountPaisa:r.amount_paisa})),requestId.current,roundUp); setSelected({});setConfirmGroup(null);requestId.current=crypto.randomUUID() }
+                catch(e){setError(messageOf(e))}finally{setBusy(false)}
+              }}>{busy?'Saving…':'Yes, request confirmation'}</button></div>
+          </div> : <button className="button button-copper" type="button" disabled={busy} onClick={()=>setConfirmGroup(group.id)}>Mark selected as paid</button>}
+        </div>}
+      </div>
+    })}
+  </section>
+}
+
+/** Early claims are real obligations and stay visible even when rejected. */
+function EarlySettlementHistory({ transfers, claims, me, getName, onMarkPaid, onConfirm, loading }: {
+  transfers: SettlementTransfer[]; claims: PaymentClaim[]; me:string;
+  getName:(groupId:string,id:string)=>string;
+  onMarkPaid:(transferId:string,amount:number)=>Promise<void>;
+  onConfirm:(claimId:string,received:boolean)=>Promise<void>;loading:boolean;
+}) {
+  const [busy,setBusy]=useState<string|null>(null), [error,setError]=useState('')
+  async function run(key:string, cb:()=>Promise<void>){setBusy(key);setError('');try{await cb()}catch(e){setError(messageOf(e))}finally{setBusy(null)}}
+  if(!transfers.length && !loading) return null
+  return <section className="panel ck-early-history"><SectionHead label="EARLY SETTLEMENT LEDGER" title="Payments before month-end"/>
+    <p className="muted-small">Pending claims still count as outstanding until the recipient confirms. Rejected claims can be reported again.</p>
+    {error&&<p className="form-error" role="alert">{error}</p>}
+    {transfers.map(t=>{
+      const debtor=t.debtor_user_id===me
+      const claim=claims.find(c=>c.transfer_id===t.id&&c.status==='pending')
+      return <div className="ck-early-record" key={t.id}>
+        <div><span className="micro">{debtor?'PAY TO':'RECEIVE FROM'}</span><h3>{getName(t.group_id,debtor?t.creditor_user_id:t.debtor_user_id)}</h3><small>{t.origin_month?.slice(0,7)} · {t.status==='confirmed'?'Confirmed':t.status==='awaiting_confirmation'?'Awaiting confirmation':'Outstanding'}</small></div>
+        <strong>{money(t.amount_paisa)}</strong>
+        {debtor && t.status==='unpaid' && <button className="button button-outline" disabled={busy!==null} onClick={()=>void run(t.id,()=>onMarkPaid(t.id,Math.ceil(Number(t.amount_paisa)/100)*100))}>Report payment again</button>}
+        {!debtor && t.status==='awaiting_confirmation' && claim && <div className="ck-receive-actions"><span>Claimed {money(claim.actual_paid_paisa)}</span><button className="button button-copper" disabled={busy!==null} onClick={()=>void run(t.id,()=>onConfirm(claim.id,true))}>Confirm received</button><button className="button button-outline" disabled={busy!==null} onClick={()=>void run(t.id,()=>onConfirm(claim.id,false))}>Not received</button></div>}
+      </div>
+    })}
+  </section>
+}
+
+function RecordPage({ group, members, expenses, userId, onBack, onSaved }: {
+  group: Group | null; members: Member[]; expenses: Expense[]; userId: string;
+  onBack: () => void; onSaved: () => Promise<void>
+}) {
   const [amount, setAmount] = useState('')
   const [description, setDescription] = useState('')
   const [chosen, setChosen] = useState<string[]>([userId])
+  const [contributors, setContributors] = useState<{ userId: string; amount: string }[]>([{ userId, amount: '' }])
+  const [addingContributor, setAddingContributor] = useState(false)
+  const [newContributorId, setNewContributorId] = useState('')
   const [requestId, setRequestId] = useState(() => crypto.randomUUID())
-  const [busy, setBusy] = useState(false), [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
   const [initializedGroup, setInitializedGroup] = useState<string | null>(null)
+
   useEffect(() => {
-    if (!group || !members.length) return
-    if (initializedGroup === group.id) return
-    const eligible = new Set(members.map((m) => m.user_id))
-    const previous = expenses[0]?.shares.map((s) => s.user_id).filter((id) => eligible.has(id)) ?? []
-    setChosen([...new Set([userId, ...previous])]); setInitializedGroup(group.id); setRequestId(crypto.randomUUID())
+    if (!group || !members.length || initializedGroup === group.id) return
+    const eligible = new Set(members.map(m => m.user_id))
+    const previous = expenses[0]?.shares.map(s => s.user_id).filter(id => eligible.has(id)) ?? []
+    setChosen([...new Set([userId, ...previous])])
+    setContributors([{ userId, amount: '' }]); setAddingContributor(false)
+    setInitializedGroup(group.id); setRequestId(crypto.randomUUID())
   }, [group, expenses, members, userId, initializedGroup])
+
   const amountPaisa = useMemo(() => { try { return rupeesToPaisa(amount) } catch { return null } }, [amount])
-  const splits = useMemo(() => amountPaisa ? allocateShares(amountPaisa, chosen) : {}, [amountPaisa, chosen])
-  function toggle(id: string) { if (id === userId) return; setChosen((current) => current.includes(id) ? current.filter((x) => x !== id) : [...current, id]) }
+  const shares = useMemo(() => amountPaisa ? allocateShares(amountPaisa, chosen) : {}, [amountPaisa, chosen])
+  const isMulti = contributors.length > 1
+  const contributionRows = useMemo(() => contributors.map((c) => {
+    // The common single-payer flow always covers the full bill, automatically.
+    const raw = isMulti ? c.amount : amount
+    try { return { userId: c.userId, raw, paisa: rupeesToPaisa(raw), valid: true } }
+    catch { return { userId: c.userId, raw, paisa: 0, valid: false } }
+  }), [contributors, isMulti, amount])
+  const allContributionsValid = contributionRows.every(c => c.valid)
+  const contributedPaisa = contributionRows.reduce((sum, c) => sum + c.paisa, 0)
+  const remainingPaisa = amountPaisa === null ? null : amountPaisa - contributedPaisa
+  const canSave = Boolean(group && amountPaisa && chosen.length && allContributionsValid && remainingPaisa === 0 && !busy)
+  const available = members.filter(m => !contributors.some(c => c.userId === m.user_id))
+  const memberName = (id: string) => members.find(m => m.user_id === id)?.name ?? 'Colleague'
+
+  function toggle(id: string) {
+    setChosen(current => current.includes(id) ? current.filter(x => x !== id) : [...current, id])
+  }
+  function addContributor() {
+    if (!newContributorId || contributors.some(c => c.userId === newContributorId)) return
+    setContributors(current => [...current.map((c, i) => i === 0 && current.length === 1 ? { ...c, amount } : c),
+      { userId: newContributorId, amount: '' }])
+    setNewContributorId(''); setAddingContributor(false)
+  }
+  function removeContributor(id: string) {
+    setContributors(current => current.filter(c => c.userId !== id))
+    setError('')
+  }
   async function save(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault(); if (!supabase || !group || !amountPaisa || chosen.length === 0) return
+    e.preventDefault()
+    if (!supabase || !group || !canSave || !amountPaisa) return
     setBusy(true); setError('')
     try {
-      const { error: rpcError } = await supabase.rpc('record_expense', { p_group_id: group.id, p_amount_paisa: amountPaisa, p_participant_user_ids: [...chosen].sort(), p_request_id: requestId, p_description: description.trim() || null, p_occurred_at: null })
-      if (rpcError) throw rpcError
+      const pairs = [...contributionRows].sort((a,b) => a.userId.localeCompare(b.userId))
+      const { error: rpcError } = await supabase.rpc('record_expense_multi', {
+        p_group_id: group.id,
+        p_amount_paisa: amountPaisa,
+        p_participant_user_ids: [...chosen].sort(),
+        p_contributor_user_ids: pairs.map(p => p.userId),
+        p_contribution_amounts_paisa: pairs.map(p => p.paisa),
+        p_request_id: requestId,
+        p_description: description.trim() || null,
+        p_occurred_at: null,
+      })
+      if (rpcError) {
+        // Log the structured error without logging personal ledger data or credentials.
+        console.error('[Chai Khapa] record_expense_multi failed:', diagnosticDetails(rpcError))
+        throw rpcError
+      }
       setRequestId(crypto.randomUUID()); await onSaved()
-    } catch (reason) { setError(messageOf(reason)) } finally { setBusy(false) }
+    } catch (reason) {
+      console.error('[Chai Khapa] Session recording issue:', diagnosticDetails(reason))
+      setError(messageOf(reason))
+    }
+    finally { setBusy(false) }
   }
-  if (group?.archived_at) return <Empty icon="users" title="Group archived" detail="Reopen this group in Settings before recording more sessions." action={<button className="button button-outline" onClick={onBack}>Back to overview</button>}/>
-  if (!group) return <><div className="page-heading short"><div><h1>Record chai<span className="punctuation">.</span></h1></div></div><Empty icon="users" title="Choose a group first" detail="Create or join a group before recording your first session." action={<button className="button button-outline" onClick={onBack}>Back to overview</button>}/></>
-  return <><div className="page-heading short"><div><p className="micro accent">NEW ENTRY / {group.name.toUpperCase()}</p><h1>Record chai<span className="punctuation">.</span></h1><p>Amount first. Check who's here. Done.</p></div></div><form className="record-layout" onSubmit={(e) => void save(e)}><section className="panel record-main"><SectionHead label="01 / THE BILL" title="How much was it?"/><label className="field-label" htmlFor="amount">TOTAL AMOUNT (PKR)</label><div className="amount-input"><span>Rs.</span><input id="amount" autoFocus inputMode="decimal" pattern="[0-9]+(\.[0-9]{1,2})?" placeholder="350" value={amount} onChange={(e) => setAmount(e.target.value)} required aria-describedby="amount-help" /></div><p id="amount-help" className="field-help">Enter rupees. You can include up to 2 decimal places.</p><div className="divider"/><SectionHead label="02 / THE TABLE" title="Who was there?" aside={<span className="people-count">{chosen.length} selected</span>}/><p className="panel-description">Attendees are preselected from the previous session. Make any changes you need. You're always included as the payer.</p>{members.length ? <div className="attendee-grid">{members.map((m) => <label key={m.user_id} className={`attendee ${chosen.includes(m.user_id) ? 'checked' : ''}`}><input type="checkbox" checked={chosen.includes(m.user_id)} disabled={m.user_id === userId} onChange={() => toggle(m.user_id)}/><Avatar name={m.name}/><span>{m.name}{m.user_id === userId ? <small>YOU · PAID</small> : null}</span><span className="custom-check"><Icon name="check" size={14}/></span></label>)}</div> : <p className="muted-small">Loading members…</p>}<div className="divider"/><label className="field-label" htmlFor="description">SESSION NOTE <span className="optional">OPTIONAL</span></label><input id="description" placeholder="e.g. Afternoon chai" maxLength={240} value={description} onChange={(e) => setDescription(e.target.value)} />{error && <p className="form-error" role="alert">{error}</p>}</section><aside className="record-summary"><div className="summary-top"><span className="micro">SESSION SUMMARY</span><Icon name="receipt" size={22}/></div><div className="summary-amount">{amountPaisa ? money(amountPaisa) : 'Rs. —'}</div><p className="muted-small">{chosen.length} {chosen.length === 1 ? 'person' : 'people'} · paid by you · equally split</p><div className="summary-splits">{chosen.map((id) => <div key={id}><span>{members.find((m) => m.user_id === id)?.name ?? 'Colleague'}</span><strong>{amountPaisa ? money(splits[id] ?? 0) : '—'}</strong></div>)}</div><button type="submit" className="button button-copper full" disabled={!amountPaisa || !chosen.length || busy}>{busy ? <Spinner/> : <Icon name="check" size={18}/>} {busy ? 'Saving session…' : 'Save this session'}</button><button type="button" className="button button-text full" onClick={onBack}>Cancel</button><p className="summary-note">The bill, individual shares, and notifications are saved together. No one needs to pay right now.</p></aside></form></>
+  if (group?.archived_at) return <Empty icon="users" title="Group archived" detail="Reopen this group before recording another session." action={<button className="button button-outline" onClick={onBack}>Back to group</button>}/>
+  if (!group) return <Empty icon="users" title="Choose a group first" detail="Create or join a group before recording your first session." action={<button className="button button-outline" onClick={onBack}>Back to groups</button>}/>
+  return <>
+    <div className="page-heading short"><div><p className="micro accent">NEW SESSION / {group.name.toUpperCase()}</p><h1>Record chai<span className="punctuation">.</span></h1><p>Bill first. Tick who's here. Add another payer only when needed.</p></div></div>
+    <form className="record-layout" onSubmit={e => void save(e)}>
+      <section className="panel record-main">
+        <SectionHead label="01 / THE BILL" title="How much was it?"/>
+        <label className="field-label" htmlFor="amount">TOTAL AMOUNT (PKR)</label>
+        <div className="amount-input"><span>Rs.</span><input id="amount" autoFocus inputMode="decimal" pattern="[0-9]+(\.[0-9]{1,2})?" placeholder="350" value={amount} onChange={e=>setAmount(e.target.value)} required/></div>
+        <p className="field-help">Enter rupees, with up to two decimal places.</p>
+        <div className="divider"/>
+        <SectionHead label="02 / THE TABLE" title="Who attended?" aside={<span className="people-count">{chosen.length} selected</span>}/>
+        <p className="panel-description">The previous session's attendees are preselected. Someone can contribute without attending.</p>
+        <div className="attendee-grid">{members.map(m=><label key={m.user_id} className={`attendee ${chosen.includes(m.user_id)?'checked':''}`}>
+          <input type="checkbox" checked={chosen.includes(m.user_id)} onChange={()=>toggle(m.user_id)}/>
+          <Avatar name={m.name}/><span>{m.name}{m.user_id===userId?<small>YOU</small>:null}</span>
+          <span className="custom-check"><Icon name="check" size={14}/></span>
+        </label>)}</div>
+        <div className="divider"/>
+        <SectionHead label="03 / THE CONTRIBUTORS" title="Who paid?"/>
+        <p className="panel-description">Credit the people whose money actually covered the bill—even if someone else handed over the cash.</p>
+        <div className="ck-contrib-list">
+          {contributors.map((c, index) => <div className="ck-contrib-row" key={c.userId}>
+            <div className="ck-contrib-person"><Avatar name={memberName(c.userId)}/><div><strong>{memberName(c.userId)}</strong><small>{c.userId===userId?'You': 'Group member'}</small></div></div>
+            <div className="ck-contrib-amount">
+              {isMulti ? <><label htmlFor={`contrib-${index}`}>Amount (Rs.)</label><input id={`contrib-${index}`} inputMode="decimal" placeholder="0.00" value={c.amount} onChange={e=>setContributors(previous=>previous.map(row=>row.userId===c.userId?{...row,amount:e.target.value}:row))}/></> : <strong>{amountPaisa ? money(amountPaisa) : 'Whole bill'}</strong>}
+            </div>
+            {isMulti && <button type="button" className="ck-contrib-remove" aria-label={`Remove ${memberName(c.userId)}`} onClick={()=>removeContributor(c.userId)}><Icon name="close" size={18}/></button>}
+          </div>)}
+        </div>
+        {addingContributor && <div className="ck-contrib-add"><label className="field-label" htmlFor="contributor-choice">CHOOSE CONTRIBUTOR</label><div className="ck-contrib-add-row"><ChaiSelect id="contributor-choice" value={newContributorId} onChange={setNewContributorId} placeholder="Select colleague" options={available.map(m=>({value:m.user_id,label:m.name}))}/><button type="button" className="button button-copper" onClick={addContributor} disabled={!newContributorId}>Add</button><button type="button" className="button button-outline" onClick={()=>setAddingContributor(false)}>Cancel</button></div></div>}
+        {available.length>0 && !addingContributor && <button type="button" className="button button-outline ck-contrib-add-btn" onClick={()=>setAddingContributor(true)}><Icon name="plus" size={16}/> Add another contributor</button>}
+        {isMulti && <div className={`ck-contrib-total ${remainingPaisa === 0 ? 'balanced' : 'unbalanced'}`} role="status"><span>Contributions: <strong>{money(contributedPaisa)}</strong></span><span>{remainingPaisa===null?'Enter the bill amount': remainingPaisa===0?'Fully covered ✓':remainingPaisa>0?`Still needed: ${money(remainingPaisa)}`:`Over by ${money(-remainingPaisa)}`}</span></div>}
+        <div className="divider"/>
+        <label className="field-label" htmlFor="description">SESSION NOTE <span className="optional">OPTIONAL</span></label>
+        <input id="description" maxLength={240} placeholder="e.g. Afternoon chai" value={description} onChange={e=>setDescription(e.target.value)}/>
+      </section>
+      <aside className="record-summary">
+        <div className="summary-top"><span className="micro">SESSION SUMMARY</span><Icon name="receipt" size={22}/></div>
+        <div className="summary-amount">{amountPaisa ? money(amountPaisa) : 'Rs. —'}</div>
+        <p className="muted-small">{chosen.length} attendee{chosen.length===1?'':'s'} · {contributors.length} contributor{contributors.length===1?'':'s'} · equally split</p>
+        <div className="summary-splits">{chosen.map(id=><div key={id}><span>{memberName(id)}</span><strong>{amountPaisa?money(shares[id]??0):'—'}</strong></div>)}</div>
+        <button type="submit" className="button button-copper full" disabled={!canSave}>{busy?<Spinner/>:<Icon name="check" size={18}/>} {busy?'Saving session…':'Save this session'}</button>
+        {error && <p className="form-error" role="alert">{error}</p>}
+        <button type="button" className="button button-text full" onClick={onBack}>Cancel</button>
+        {isMulti && remainingPaisa!==0 && <p className="summary-note">The contributors' amounts must add up to the total bill before saving.</p>}
+        <p className="summary-note">Who paid and who attended are tracked separately. You can settle balances later.</p>
+      </aside>
+    </form>
+  </>
 }
 
-function ActivityPage({ group, expenses, members, loading, onRecord }: { group: Group | null; expenses: Expense[]; members: Member[]; loading: boolean; onRecord: () => void }) {
+function ActivityPage({ group, expenses, members, loading, onRecord }: {
+  group: Group | null; expenses: Expense[]; members: Member[]; loading: boolean; onRecord: () => void
+}) {
   const [expanded, setExpanded] = useState<string | null>(null)
-  const memberName = (id: string) => members.find((m) => m.user_id === id)?.name ?? 'Colleague'
-  return <><div className="page-heading short"><div><p className="micro accent">EVERY CUP, ACCOUNTED FOR</p><h1>Session history<span className="punctuation">.</span></h1><p>{group ? `The shared ledger for ${group.name}.` : 'Select a group to see its sessions.'}</p></div><button className="button button-copper heading-cta" onClick={onRecord} disabled={!group || Boolean(group.archived_at)}><Icon name="plus"/> Record session</button></div><div className="panel activity-panel"><SectionHead label="THE RECORD" title="All sessions" aside={<span className="people-count">Latest {expenses.length} records</span>}/>{loading ? <LoadingPanel/> : !group ? <Empty icon="users" title="No group selected" detail="Choose or create a group to view the ledger."/> : expenses.length ? <div className="activity-list full-list">{expenses.map((expense) => <div className="activity-entry" key={expense.id}><button className="expense-row" onClick={() => setExpanded(expanded === expense.id ? null : expense.id)} aria-expanded={expanded === expense.id}><span className="expense-icon"><Icon name="cup"/></span><span className="expense-info"><strong>{expense.description || 'Chai session'}</strong><small>{memberName(expense.paid_by_user_id)} paid <span>·</span> {relativeDate(expense.occurred_at)}</small></span><span className="expense-end"><strong>{money(expense.amount_paisa)}</strong><small>{expense.shares.length} people <Icon name="chevron" size={14}/></small></span></button>{expanded === expense.id && <div className="activity-shares"><p className="micro">INDIVIDUAL SHARES</p>{expense.shares.map((share) => <div key={share.user_id}><span>{memberName(share.user_id)}</span><strong>{money(share.share_paisa)}</strong></div>)}</div>}</div>)}</div> : <Empty icon="receipt" title="No sessions recorded" detail="As soon as someone adds a bill, it will show up here." action={<button className="button button-copper" onClick={onRecord}>Record a session</button>}/>}<p className="panel-bottom-note">Showing up to 150 recent sessions in this release. Full history pagination will follow.</p></div></>
+  const memberName = (id: string) => members.find(m => m.user_id === id)?.name ?? 'Colleague'
+  const contributorsFor = (e: Expense) => e.contributions.length
+    ? e.contributions : [{ user_id: e.paid_by_user_id, amount_paisa: e.amount_paisa }]
+  const payerSummary = (e: Expense) => {
+    const people = contributorsFor(e)
+    return people.length === 1 ? `${memberName(people[0].user_id)} paid` : `${people.length} colleagues contributed`
+  }
+  return <>
+    <div className="page-heading short"><div><p className="micro accent">EVERY CUP, ACCOUNTED FOR</p><h1>Session history<span className="punctuation">.</span></h1><p>{group ? `The shared ledger for ${group.name}.` : 'Select a group to see its sessions.'}</p></div><button className="button button-copper heading-cta" onClick={onRecord} disabled={!group || Boolean(group.archived_at)}><Icon name="plus"/> Record session</button></div>
+    <div className="panel activity-panel"><SectionHead label="THE RECORD" title="All sessions" aside={<span className="people-count">Latest {expenses.length} records</span>}/>
+      {loading ? <LoadingPanel/> : !group ? <Empty icon="users" title="No group selected" detail="Choose or create a group to view the ledger."/> : expenses.length ?
+        <div className="activity-list full-list">{expenses.map(e=><div className="activity-entry" key={e.id}>
+          <button className="expense-row" onClick={()=>setExpanded(expanded===e.id?null:e.id)} aria-expanded={expanded===e.id}>
+            <span className="expense-icon"><Icon name="cup"/></span><span className="expense-info"><strong>{e.description||'Chai session'}</strong><small>{payerSummary(e)} · {relativeDate(e.occurred_at)}</small></span>
+            <span className="expense-end"><strong>{money(e.amount_paisa)}</strong><small>{e.shares.length} attendee{e.shares.length===1?'':'s'} <Icon name="chevron" size={14}/></small></span>
+          </button>
+          {expanded===e.id && <div className="activity-shares ck-activity-breakdown">
+            <p className="micro">WHO CONTRIBUTED</p>
+            {contributorsFor(e).map(c=><div key={c.user_id}><span>{memberName(c.user_id)}</span><strong>{money(c.amount_paisa)}</strong></div>)}
+            <p className="micro ck-breakdown-title">INDIVIDUAL SHARES</p>
+            {e.shares.map(s=><div key={s.user_id}><span>{memberName(s.user_id)}</span><strong>{money(s.share_paisa)}</strong></div>)}
+          </div>}
+        </div>)}</div>
+      : <Empty icon="receipt" title="No sessions recorded" detail="As soon as someone adds a bill, it will show up here." action={<button className="button button-copper" onClick={onRecord}>Record a session</button>}/>}<p className="panel-bottom-note">Showing up to 150 recent sessions in this release. Full history pagination will follow.</p>
+    </div>
+  </>
 }
 
 function NotificationsPage({ notifications, unreadCount, hasMore, onMore, onMarkRead, onMarkAll, onGo }: { notifications: Notification[]; unreadCount: number; hasMore: boolean; onMore: () => void; onMarkRead: (id: string) => Promise<void>; onMarkAll: () => Promise<void>; onGo: (n: Notification) => void }) {
