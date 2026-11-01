@@ -135,15 +135,16 @@ export default function UnifiedSettlements({ groups, overviews, userId, periods,
     const mySelected=chosenFor(groupId,month)
     const totalChosen=mySelected.reduce((n,r)=>n+(Number.isFinite(r.amount)?r.amount:0),0)
     const expanded=open[key]??(month===currentMonth)
-    return <article key={key} className={`ck39-month ${pendingMonth?'ck39-needs-action':''}`}>
+    const statusLabel = pendingMonth ? 'Awaiting finalization' : month===currentMonth ? 'Current' : hasPeriod ? 'Finalized' : 'Previous'
+    return <article key={key} className="ck39-month">
       <button type="button" className="ck39-month-head" aria-expanded={expanded} onClick={()=>setOpen(s=>({...s,[key]:!expanded}))}>
-        <span><strong>{monthLabel(month)}</strong><small>{group.name} · {month===currentMonth?'Current month':pendingMonth?'Awaiting finalization':hasPeriod?'Month finalized':'Past month'}</small></span>
-        <span className="ck39-month-total"><strong>{money(due)}</strong><small>{pendingMonth?'Calculation pending':due>0?'To pay':'Nothing owed'}</small></span>
+        <span className="ck39-month-identity"><strong>{monthLabel(month)}</strong><small>{group.name}</small>{pendingMonth&&<small className="ck39-group-spending">{pendingMonth.session_count} {pendingMonth.session_count===1?'session':'sessions'} · {money(pendingMonth.total_paisa)} total group spending</small>}<span className={`ck39-status ${pendingMonth?'ck39-status-pending':''}`}>{statusLabel}</span></span>
+        <span className={`ck39-month-total ${pendingMonth?'ck39-total-unfinalized':''}`}><strong>{pendingMonth?'Pending':money(due)}</strong><small>{pendingMonth?'Your dues not calculated':due>0?'Your amount to pay':'Nothing owed'}</small></span>
         <span className={`ck39-chevron ${expanded?'expanded':''}`}>⌄</span>
       </button>
       {expanded&&<div className="ck39-month-body">
         {pendingMonth&&<div className="ck39-recovery" role="status">
-          <div><strong>Month needs finalization</strong><p>{pendingMonth.session_count} sessions · {money(pendingMonth.total_paisa)} in group bills. This is not your personal debt.</p></div>
+          <div><strong>Finalization pending</strong><p>The group spent {money(pendingMonth.total_paisa)} across {pendingMonth.session_count} {pendingMonth.session_count===1?'session':'sessions'}. That is the total group bill, not what you personally owe. Your net settlement will be calculated when the month is finalized.</p></div>
           {pendingMonth.can_close?<button type="button" className="ck39-outline" disabled={busy} onClick={()=>setConfirm(confirm===`close:${key}`?null:`close:${key}`)}>Review &amp; finalize</button>:<span className="ck39-tag">Waiting for owner or scheduler</span>}
           {confirm===`close:${key}`&&<div className="ck39-confirm"><p>Finalize {monthLabel(month)}? This fixes the month's net instructions and prevents backdated bills. It does not mark payments received.</p><button className="ck39-outline" onClick={()=>setConfirm(null)}>Cancel</button><button className="ck39-primary" disabled={busy} onClick={()=>void perform(()=>onCloseMonth(groupId,month))}>Finalize month</button></div>}
         </div>}
